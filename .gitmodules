@@ -1,0 +1,3 @@
+[submodule "lib/benstools"]
+	path = lib/benstools
+	url = git@bitbucket.org:ttocsneb/benstools.git
