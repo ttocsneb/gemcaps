@@ -35,6 +35,8 @@ WOLFSSL_CTX *server_bind(char *port, char *cert_file, char *key_file);
  */
 WOLFSSL *server_accept(WOLFSSL_CTX *ctx, int socket);
 
+
+
 #ifdef __cplusplus
 }
 #endif

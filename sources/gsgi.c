@@ -1,6 +1,9 @@
-#include "wsgi.h"
+#include "gsgi.h"
 
 #include <benstools/string.h>
+#include <benstools/set.h>
+#include <sys/epoll.h>
+#include <semaphore.h>
 
 #include <ctype.h>
 #include <stdio.h>
@@ -8,20 +11,42 @@
 #include <unistd.h>
 #include <string.h>
 
+typedef struct {
+    int id;         // Id of the request
+    int state;      // Current state of the request
+    bt_string buf;  // String buffer
+    WOLFSSL *ssl;   // SSL connection
+    gsgi *object;   // gsgi object this request belongs to
+} gsgi_request;
+
+void gsgi_request_destroy(gsgi_request *request) {
+    bt_string_destroy(&request->buf);
+    if (request->ssl != NULL) {
+        wolfSSL_free(request->ssl);
+        request->ssl = NULL;
+    }
+}
+
+int gsgi_request_hash(gsgi_request *request) {
+    int hash = request->object->pid;
+    hash = hash * 31 + request->id;
+    return hash;
+}
+
 /**
  * Send the request to a file
  * 
  * @param f file to send to
  * @param request request to send
  */
-void send_request(FILE *f, wsgi_request *request) {
-    fprintf(f, "id: %d\n", request->id);
-    fprintf(f, "ip: %s\n", request->ip);
-    fprintf(f, "port: %d\n", request->port);
-    fprintf(f, "request: %s\n\n", request->request);
+void send_request(FILE *f, int id, char *ip, int port, char *request) {
+    fprintf(f, "id: %d\n", id);
+    fprintf(f, "ip: %s\n", ip);
+    fprintf(f, "port: %d\n", port);
+    fprintf(f, "request: %s\n\n", request);
 }
 
-void _apply_header(wsgi_response *response, bt_string *key, bt_string *value) {
+void _apply_header(gsgi_response *response, bt_string *key, bt_string *value) {
     if (strcmp(key->str, "id") == 0) {
         response->id = atoi(value->str);
         return;
@@ -51,8 +76,8 @@ void _apply_header(wsgi_response *response, bt_string *key, bt_string *value) {
  * 
  * @return the parsed response headers
  */
-wsgi_response parse_response(FILE *f) {
-    wsgi_response response;
+gsgi_response parse_response(FILE *f) {
+    gsgi_response response;
     memset(&response, 0, sizeof(response));
 
     char buf[2048];
@@ -90,7 +115,7 @@ wsgi_response parse_response(FILE *f) {
  * 
  * @return the created response body
  */
-bt_string read_response(FILE *f, wsgi_response *response) {
+bt_string read_response(FILE *f, gsgi_response *response) {
 
     // Initialize the body string
     int len = response->size;
@@ -127,4 +152,67 @@ bt_string read_response(FILE *f, wsgi_response *response) {
     }
 
     return body;
+}
+
+bt_set connections;
+int tid;
+bt_array gsgi_queue;
+sem_t gsgi_queue_mutex;
+
+void init_epoll_gsgi(int epfd, gsgi *object) {
+    epoll_ctl(epfd, EPOLL_CTL_ADD, object->resfd, &object);
+}
+
+void *gsgi_loop(void *args) {
+    int epfd = epoll_create1(0);
+
+    close(epfd);
+    return NULL;
+}
+
+void gsgi_setup() {
+    connections = bt_set_create(31, sizeof(gsgi_request));
+    sem_init(&gsgi_queue_mutex, FALSE, 1);
+    gsgi_queue = bt_array_create(sizeof(gsgi), 5);
+
+    // TODO create the gsgi loop thread
+}
+
+void gsgi_cleanup() {
+    bt_set_iter it = bt_set_iterate(&connections);
+    gsgi_request *r;
+    while ((r = bt_set_iter_next(&it)) != NULL) {
+        gsgi_request_destroy(r);
+    }
+    bt_set_destroy(&connections);
+
+    bt_array_destroy(&gsgi_queue);
+    sem_destroy(&gsgi_queue_mutex);
+}
+
+gsgi gsgi_create(gsgi_settings *settings) {
+    gsgi object;
+    memset(&object, 0, sizeof(object));
+    // TODO create process
+    return object;
+}
+
+void gsgi_destroy(gsgi *object) {
+    // TODO stop process
+    close(object->resfd);
+    close(object->reqfd);
+}
+
+void gsgi_process_request(gsgi *object, WOLFSSL *ssl, const char *request) {
+    // Create the request
+    gsgi_request r;
+    r.id = ++object->rid;
+    r.ssl = ssl;
+    r.object = object;
+    r.state = 0;
+    r.buf = bt_string_new(1024);
+
+    // Add the request to the request set
+    // The gsgi receiver handler should process outgoing responses
+    bt_set_add(&connections, gsgi_request_hash(&r), &r);
 }
