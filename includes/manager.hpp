@@ -2,6 +2,11 @@
 #define __GEMCAPS_MANAGER__
 
 #include <string>
+#include <vector>
+#include <memory>
+#include <set>
+
+#include <yaml-cpp/yaml.h>
 
 class GeminiRequest {
 private:
@@ -20,9 +25,37 @@ public:
     const std::string &getRequest() const { return request; }
 };
 
+class Handler;
+#include "handler.hpp"
+
+/**
+ * Directs requests to the proper handler
+ */
 class Manager {
 private:
+    std::vector<std::shared_ptr<Handler>> handlers;
+    std::set<int> ports;
+
+    void loadCapsule(YAML::Node &node);
 public:
+    /**
+     * Create a new manager loading all handlers in the specified directory
+     * 
+     * @param directory directory with all the handlers
+     */
+    Manager(const std::string &directory);
+
+    /**
+     * Handle the request
+     * 
+     * @param ssl ssl connection
+     * @param request gemini request
+     * 
+     * @return whether the request was processed
+     */
+    bool handle(WOLFSSL *ssl, const GeminiRequest &request);
+
+    const std::set<int> &getPorts() const { return ports; }
 };
 
 #endif

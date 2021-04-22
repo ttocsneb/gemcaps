@@ -1,6 +1,8 @@
 #ifndef __GEMCAPS_FILEHANDLER__
 #define __GEMCAPS_FILEHANDLER__
 
+#include <memory>
+
 #include "settings.hpp"
 #include "handler.hpp"
 
@@ -9,10 +11,11 @@
  */
 class FileHandler : public Handler {
 private:
-    FileSettings settings;
+    std::shared_ptr<FileSettings> settings;
 public:
-    FileHandler(FileSettings settings)
-        : settings(settings) {}
+    FileHandler(std::shared_ptr<FileSettings> settings, Glob host, int port)
+        : settings(settings),
+          Handler(host, port) {}
     void handle(WOLFSSL *ssl, const GeminiRequest &request);
 };
 

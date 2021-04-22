@@ -1,5 +1,7 @@
-#ifndef __GEMCAPS_WSGIHANDLER__
-#define __GEMCAPS_WSGIHANDLER__
+#ifndef __GEMCAPS_GSGIHANDLER__
+#define __GEMCAPS_GSGIHANDLER__
+
+#include <memory>
 
 #include "handler.hpp"
 #include "settings.hpp"
@@ -8,13 +10,19 @@
 /**
  * The gemini request handler
  */
-class GeminiHandler : public Handler {
+class GSGIHandler : public Handler {
 private:
-    GSGISettings settings;
-    gsgi object;
+    std::shared_ptr<GSGISettings> settings;
+    gsgi instance;
+
+    void create();
 public:
-    GeminiHandler(GSGISettings settings);
-    ~GeminiHandler();
+    GSGIHandler(std::shared_ptr<GSGISettings> settings, Glob host, int port)
+            : settings(settings),
+            Handler(host, port) {
+        memset(&instance, 0, sizeof(gsgi));
+    }
+    ~GSGIHandler();
 
     void handle(WOLFSSL *ssl, const GeminiRequest &request);
 };

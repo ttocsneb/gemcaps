@@ -4,8 +4,11 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <memory>
 
 #include <yaml-cpp/yaml.h>
+
+#include "glob.hpp"
 
 /**
  * The base class for all settings objects
@@ -38,8 +41,8 @@ public:
 class HandlerSettings : public Settings {
 private:
     std::string type;
-    std::string path;
-    std::vector<std::string> rules;
+    Glob path;
+    std::vector<Glob> rules;
 public:
     virtual void load(YAML::Node &settings);
 
@@ -54,13 +57,13 @@ public:
      * 
      * @return the path
      */
-    const std::string &getPath() const { return path; }
+    const Glob &getPath() const { return path; }
     /**
      * Get the rules for the handler
      * 
      * @return the rules
      */
-    const std::vector<std::string> &getRules() const { return rules; }
+    const std::vector<Glob> &getRules() const { return rules; }
 };
 
 /**
@@ -130,14 +133,16 @@ public:
  */
 class CapsuleSettings : public Settings {
 private:
-    std::string host;
+    Glob host;
     int port;
 
-    std::vector<FileSettings> files;
-    std::vector<GSGISettings> gsgi;
+    std::vector<std::shared_ptr<HandlerSettings>> handlers;
 
     void _load_handler(YAML::Node &settings);
 public:
+    static inline const std::string TYPE_FILE = "file";
+    static inline const std::string TYPE_GSGI = "gsgi";
+
     virtual void load(YAML::Node &settings);
 
     /**
@@ -145,7 +150,7 @@ public:
      * 
      * @return the host
      */
-    const std::string &getHost() const { return host; }
+    const Glob &getHost() const { return host; }
     /**
      * Get the port for the capsule
      * 
@@ -153,17 +158,11 @@ public:
      */
     int getPort() const { return port; }
     /**
-     * Get the list of file handlers for the capsule
+     * Get the list of handlers for the capsule
      * 
      * @return file handlers
      */
-    const std::vector<FileSettings> getFiles() { return files; }
-    /**
-     * Get the list of GSGI handlers for the capsule
-     * 
-     * @return GSGI handlers
-     */
-    const std::vector<GSGISettings> getGSGI() { return gsgi; }
+    const std::vector<std::shared_ptr<HandlerSettings>> &getHandlers() { return handlers; }
 };
 
 /**

@@ -3,6 +3,24 @@
 using std::map;
 using std::vector;
 using std::string;
+using std::shared_ptr;
+using std::make_shared;
+
+namespace YAML {
+    template<>
+    struct convert<Glob> {
+        static Node encode(const Glob &rhs) {
+            return Node(rhs.str());
+        }
+        static bool decode(const Node &node, Glob &rhs) {
+            if (!node.IsScalar()) {
+                return false;
+            }
+            rhs = node.as<string>();
+            return true;
+        }
+    };
+}
 
 void Settings::load(const string &path) {
     YAML::Node settings = YAML::LoadFile(path);
@@ -17,7 +35,7 @@ void HandlerSettings::load(YAML::Node &settings) {
         path = settings["path"].as<string>();
     }
     if (settings["rules"].IsDefined()) {
-        rules = settings["rules"].as<vector<string>>();
+        rules = settings["rules"].as<vector<Glob>>();
     }
 }
 
@@ -39,27 +57,24 @@ void GSGISettings::load(YAML::Node &settings) {
 
 void CapsuleSettings::_load_handler(YAML::Node &settings) {
     string type = settings["type"].as<string>();
-    if (type == "file") {
-        FileSettings conf;
-        conf.load(settings);
-        files.push_back(conf);
+    shared_ptr<HandlerSettings> conf;
+    if (type == TYPE_FILE) {
+        conf = make_shared<FileSettings>();
+    } else if (type == TYPE_GSGI) {
+        conf = make_shared<GSGISettings>();
+    } else {
+        // TODO Error
         return;
     }
-    if (type == "gsgi") {
-        GSGISettings conf;
-        conf.load(settings);
-        gsgi.push_back(conf);
-        return;
-    }
-    // TODO Error
+    conf->load(settings);
+    handlers.push_back(conf);
 }
 
 
 void CapsuleSettings::load(YAML::Node &settings) {
-    files.clear();
-    gsgi.clear();
+    handlers.clear();
     if (settings["host"].IsDefined()) {
-        host = settings["host"].as<string>();
+        host = settings["host"].as<Glob>();
     }
     if (settings["port"].IsDefined()) {
         port = settings["port"].as<int>();

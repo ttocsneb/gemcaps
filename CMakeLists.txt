@@ -8,6 +8,8 @@ file(GLOB_RECURSE
     sources ./sources/*
 )
 
+SET(CMAKE_CXX_STANDARD 17)
+
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/benstools)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/yaml-cpp)
 

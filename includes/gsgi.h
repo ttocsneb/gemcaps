@@ -9,8 +9,8 @@
 extern "C" {
 #endif
 typedef struct {
-    char **command;
-    char **env_vars;
+    const char **command;
+    const char **env_vars;
 } gsgi_settings;
 
 typedef struct {
@@ -26,18 +26,6 @@ typedef struct {
     int cache_time;
     int size;
 } gsgi_response;
-
-
-/**
- * setup the gsgi thread
- */
-void gsgi_setup();
-/**
- * shutdown the gsgi thread.
- * 
- * Note: this does NOT destroy any created gsgi objects.
- */
-void gsgi_cleanup();
 
 /**
  * Create a new gsgi object

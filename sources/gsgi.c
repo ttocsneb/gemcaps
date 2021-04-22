@@ -154,6 +154,7 @@ bt_string read_response(FILE *f, gsgi_response *response) {
     return body;
 }
 
+unsigned int is_setup = 0;
 bt_set connections;
 int tid;
 bt_array gsgi_queue;
@@ -171,6 +172,11 @@ void *gsgi_loop(void *args) {
 }
 
 void gsgi_setup() {
+    ++is_setup;
+    if (is_setup == 1) {
+        return;
+    }
+
     connections = bt_set_create(31, sizeof(gsgi_request));
     sem_init(&gsgi_queue_mutex, FALSE, 1);
     gsgi_queue = bt_array_create(sizeof(gsgi), 5);
@@ -179,6 +185,12 @@ void gsgi_setup() {
 }
 
 void gsgi_cleanup() {
+    --is_setup;
+    if (is_setup > 0) {
+        return;
+    }
+    is_setup = FALSE;
+
     bt_set_iter it = bt_set_iterate(&connections);
     gsgi_request *r;
     while ((r = bt_set_iter_next(&it)) != NULL) {
@@ -188,9 +200,12 @@ void gsgi_cleanup() {
 
     bt_array_destroy(&gsgi_queue);
     sem_destroy(&gsgi_queue_mutex);
+
+    // TODO destroy the gsgi loop thread
 }
 
 gsgi gsgi_create(gsgi_settings *settings) {
+    gsgi_setup();
     gsgi object;
     memset(&object, 0, sizeof(object));
     // TODO create process
@@ -198,6 +213,7 @@ gsgi gsgi_create(gsgi_settings *settings) {
 }
 
 void gsgi_destroy(gsgi *object) {
+    gsgi_cleanup();
     // TODO stop process
     close(object->resfd);
     close(object->reqfd);
@@ -215,4 +231,6 @@ void gsgi_process_request(gsgi *object, WOLFSSL *ssl, const char *request) {
     // Add the request to the request set
     // The gsgi receiver handler should process outgoing responses
     bt_set_add(&connections, gsgi_request_hash(&r), &r);
+
+    gsgi_cleanup();
 }
