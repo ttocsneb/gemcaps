@@ -44,7 +44,7 @@ void GSGIHandler::create() {
     delete[] conf.env_vars;
 }
 
-void GSGIHandler::handle(WOLFSSL *ssl, const GeminiRequest &request) {
+CacheData GSGIHandler::handle(WOLFSSL *ssl, const GeminiRequest &request) {
     // Dynamically start the gsgi instance
     if (instance.pid == 0) {
         create();

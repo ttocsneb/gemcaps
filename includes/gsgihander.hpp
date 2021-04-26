@@ -3,7 +3,7 @@
 
 #include <memory>
 
-#include "handler.hpp"
+#include "manager.hpp"
 #include "settings.hpp"
 #include "gsgi.h"
 
@@ -24,7 +24,7 @@ public:
     }
     ~GSGIHandler();
 
-    void handle(WOLFSSL *ssl, const GeminiRequest &request);
+    CacheData handle(WOLFSSL *ssl, const GeminiRequest &request);
 };
 
 #endif

@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "settings.hpp"
-#include "handler.hpp"
+#include "manager.hpp"
 
 /**
  * The file request handler
@@ -16,7 +16,7 @@ public:
     FileHandler(std::shared_ptr<FileSettings> settings, Glob host, int port)
         : settings(settings),
           Handler(host, port) {}
-    void handle(WOLFSSL *ssl, const GeminiRequest &request);
+    CacheData handle(WOLFSSL *ssl, const GeminiRequest &request);
 };
 
 #endif

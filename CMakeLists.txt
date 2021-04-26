@@ -12,6 +12,7 @@ SET(CMAKE_CXX_STANDARD 17)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/benstools)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/yaml-cpp)
+add_subdirectory(${PROJECT_SOURCE_DIR}/lib/libuv)
 
 find_library(LIB_WOLFSSL wolfssl
     REQUIRED
@@ -31,4 +32,5 @@ target_link_libraries(gemcaps PUBLIC
     benstools
     yaml-cpp
     wolfssl
+    uv
 )
