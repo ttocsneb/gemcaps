@@ -12,7 +12,7 @@ using std::dynamic_pointer_cast;
 
 namespace fs = std::filesystem;
 
-Manager::Manager(const string &directory) {
+void Manager::load(const string &directory) {
     for (const auto &entry : fs::directory_iterator(directory)) {
         string ext = entry.path().extension();
         if (ext == ".yml" || ext == ".yaml") {
@@ -56,13 +56,14 @@ void Manager::loadCapsule(YAML::Node &node) {
     }
 }
 
-bool Manager::handle(WOLFSSL *ssl, const GeminiRequest &request) {
+bool Manager::handle(shared_ptr<uv_tcp_t> server, shared_ptr<WOLFSSL> ssl) {
+    GeminiRequest request("gemini://foo.bar:80/qwertyiop?asdf\r\n");
     const string &host = request.getHost();
     const string &path = request.getPath();
     int port = request.getPort();
     for (auto handler : handlers) {
         if (handler->shouldHandle(host, port, path)) {
-            handler->handle(ssl, request);
+            handler->handle(ssl.get(), request);
             return true;
         }
     }

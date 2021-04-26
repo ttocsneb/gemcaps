@@ -2,7 +2,6 @@
 
 #include <benstools/string.h>
 #include <benstools/set.h>
-#include <sys/epoll.h>
 #include <semaphore.h>
 
 #include <ctype.h>
@@ -161,13 +160,13 @@ bt_array gsgi_queue;
 sem_t gsgi_queue_mutex;
 
 void init_epoll_gsgi(int epfd, gsgi *object) {
-    epoll_ctl(epfd, EPOLL_CTL_ADD, object->resfd, &object);
+    // epoll_ctl(epfd, EPOLL_CTL_ADD, object->resfd, &object);
 }
 
 void *gsgi_loop(void *args) {
-    int epfd = epoll_create1(0);
+    // int epfd = epoll_create1(0);
 
-    close(epfd);
+    // close(epfd);
     return NULL;
 }
 
@@ -178,7 +177,7 @@ void gsgi_setup() {
     }
 
     connections = bt_set_create(31, sizeof(gsgi_request));
-    sem_init(&gsgi_queue_mutex, FALSE, 1);
+    // sem_init(&gsgi_queue_mutex, FALSE, 1);
     gsgi_queue = bt_array_create(sizeof(gsgi), 5);
 
     // TODO create the gsgi loop thread

@@ -22,7 +22,7 @@ namespace YAML {
     };
 }
 
-void Settings::load(const string &path) {
+void Settings::loadFile(const string &path) {
     YAML::Node settings = YAML::LoadFile(path);
     load(settings);
 }

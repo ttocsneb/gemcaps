@@ -26,7 +26,7 @@ public:
      * 
      * @param path yaml file to load
      */
-    void load(const std::string &path);
+    virtual void loadFile(const std::string &path);
 };
 
 /**

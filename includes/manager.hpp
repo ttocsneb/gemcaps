@@ -9,6 +9,8 @@
 #include <wolfssl/options.h>
 #include <wolfssl/ssl.h>
 
+#include <uv.h>
+
 #include <yaml-cpp/yaml.h>
 
 #include "cache.hpp"
@@ -84,21 +86,21 @@ private:
     void loadCapsule(YAML::Node &node);
 public:
     /**
-     * Create a new manager loading all handlers in the specified directory
+     * Load all handlers in the specified directory
      * 
      * @param directory directory with all the handlers
      */
-    Manager(const std::string &directory);
+    void load(const std::string &directory);
 
     /**
      * Handle the request
      * 
+     * @param server uv client connection
      * @param ssl ssl connection
-     * @param request gemini request
      * 
      * @return whether the request was processed
      */
-    bool handle(WOLFSSL *ssl, const GeminiRequest &request);
+    bool handle(std::shared_ptr<uv_tcp_t> server, std::shared_ptr<WOLFSSL> ssl);
 
     const std::set<int> &getPorts() const { return ports; }
 };
