@@ -10,27 +10,85 @@
 
 #include <uv.h>
 
-typedef void(*SSL_read_ready_cb)(uv_tcp_t *client, WOLFSSL *ssl);
+
+class SSLClient;
+
+typedef void(*SSL_ready_cb)(SSLClient *client, void *ctx);
 
 /**
  * SSLClient connects WOLFSSL to libuv
- * 
- * My plan is to create an SSLClient on accept that links to both the WOLFSSL context and the uv_handler data to allow their respective handlers to access the SSL Client
  */
 class SSLClient {
+public:
+    enum State {
+        ACCEPT,
+        READY
+    };
 private:
     uv_tcp_t *client;
     WOLFSSL *ssl;
     std::string buffer;
 
-    SSL_read_ready_cb rrcb = nullptr;
+    SSL_ready_cb rrcb = nullptr;
+    void *rrctx = nullptr;
+    SSL_ready_cb wrcb = nullptr;
+    void *wrctx = nullptr;
+    SSL_ready_cb ccb = nullptr;
+    void *cctx = nullptr;
+
+    bool writing = false;
+    uv_write_t write_req;
+    uv_buf_t write_buf = {nullptr, 0};
+
+    State state = ACCEPT;
 public:
-    SSLClient(uv_tcp_t *client, WOLFSSL *ssl)
-        : client(client),
-          ssl(ssl) {}
+    /**
+     * Create the SSL client
+     * 
+     * The client will be paired with the ssl
+     * 
+     * @param client tcp client
+     * @param ssl ssl client
+     */
+    SSLClient(uv_tcp_t *client, WOLFSSL *ssl);
     ~SSLClient();
 
-    void setReadReadyCallback(SSL_read_ready_cb cb) { rrcb = cb; }
+    /**
+     * Start listening for data
+     */
+    void listen();
+    /**
+     * Stop listening for data
+     */
+    void stop_listening();
+
+    /**
+     * Set the read ready callback
+     * 
+     * This is called when data is ready to read
+     * 
+     * @param cb callback
+     * @param ctx context
+     */
+    void setReadReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { rrcb = cb; rrctx = ctx;}
+    /**
+     * Set the write ready callback
+     * 
+     * This is called when data has been written
+     * 
+     * @param cb callback
+     * @param ctx context
+     */
+    void setWriteReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { wrcb = cb; wrctx = ctx; }
+    /**
+     * Set the close callback
+     * 
+     * This is called when an error occured while reading
+     * 
+     * @param cb callback
+     * @param ctx context
+     */
+    void setCloseCallback(SSL_ready_cb cb, void *ctx = nullptr) { ccb = cb; cctx = ctx; }
 
     /**
      * Send data to the client
@@ -40,7 +98,7 @@ public:
      * 
      * @return amount of data sent
      */
-    int send(const char *buf, size_t size);
+    int _send(const char *buf, size_t size);
     /**
      * Receive ready data from the client
      * 
@@ -49,15 +107,35 @@ public:
      * 
      * @return amount of data read
      */
-    int recv(char *buf, size_t size);
+    int _recv(char *buf, size_t size);
+
+    /**
+     * Get the ssl connection
+     * 
+     * @return the ssl connection
+     */
+    WOLFSSL *getSSL() { return ssl; }
+
+    /**
+     * Get the current state of the client
+     * 
+     * @return the state of the client
+     */
+    State getState() const { return state; }
 
     /**
      * Put data in the input buffer
      * 
+     * @param read size of the data
      * @param buf data to receive
-     * @param size size of the data
      */
-    void _receive(const char *buf, size_t size);
+    void _receive(ssize_t read, const uv_buf_t *buf);
+    /**
+     * Notify that data has been written to the stream
+     * 
+     * @param status 0 in case of success, < 0 otherwise
+     */
+    void _write(int status);
 };
 
 /**
@@ -65,17 +143,36 @@ public:
  */
 class SSLServer {
 private:
-    std::unique_ptr<WOLFSSL_CTX> context;
+    WOLFSSL_CTX *context = nullptr;
+    uv_tcp_t *server = nullptr;
+
+    SSL_ready_cb accept_cb = nullptr;
+    void *accept_ctx = nullptr;
 public:
+    SSLServer();
+    ~SSLServer();
     /**
      * Load the ssl certificates
      * 
+     * @param loop uv loop
+     * @param host host name to listen on
+     * @param port port to listen on
      * @param cert certificate file
      * @param key key file
      * 
      * @return whether the load was successful
      */
-    bool load(const std::string &cert, const std::string &key);
+    bool load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key);
+
+    /**
+     * Set the accept callback function
+     * 
+     * it is called when a new connection has been accepted
+     * 
+     * @param cb callback
+     * @param ctx context
+     */
+    void setAcceptCallback(SSL_ready_cb cb, void *ctx = nullptr) { accept_cb = cb; accept_ctx = ctx; }
 
     /**
      * Check whether the server is loaded
@@ -85,18 +182,11 @@ public:
     bool isLoaded() const;
 
     /**
-     * Accept a client connection
+     * Accept a client connection, and notify the accept callback
      * 
-     * @param client client to accept
-     * 
-     * @return the created ssl or nullptr
+     * @param conn client connection
      */
-    std::shared_ptr<WOLFSSL> accept(uv_tcp_t *client, SSL_read_ready_cb callback);
-
-    /**
-     * Get the ssl context
-     */
-    WOLFSSL_CTX *getContext() { return context.get(); }
+    void _accept(uv_tcp_t *conn);
 };
 
 
