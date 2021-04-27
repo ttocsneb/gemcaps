@@ -1,5 +1,5 @@
 #include <string>
-#include <set>
+#include <map>
 #include <memory>
 
 #include <iostream>
@@ -11,7 +11,7 @@
 #include "settings.hpp"
 
 using std::string;
-using std::set;
+using std::map;
 using std::shared_ptr;
 using std::make_shared;
 
@@ -19,31 +19,54 @@ using std::cout;
 using std::cerr;
 using std::endl;
 
-Manager manager;
-SSLServer ssl;
-set<shared_ptr<uv_tcp_t>> servers;
-
-struct uv_tcp_t_deleter {
-    void operator ()(uv_tcp_t *p) {
-        uv_tcp_close_reset(p, nullptr);
-    }
+typedef struct {
+    SSLServer ssl;
+    uv_tcp_t *client;
 };
 
-void on_new_connection(uv_stream_t *stream, int status) {
-    shared_ptr<uv_tcp_t> server = make_shared<uv_tcp_t>((uv_tcp_t *)stream, uv_tcp_t_deleter());
+Manager manager;
+map<uv_tcp_t*, SSLServer> servers;
+
+void on_new_connection(uv_stream_t *server, int status) {
     if (status < 0) {
         cerr << "Error [Accept] Error while connecting: " << uv_strerror(status) << endl;
         return;
     }
+    uv_tcp_t *client = new uv_tcp_t;
+    uv_tcp_init(uv_default_loop(), client);
+    if (uv_accept(server, (uv_stream_t *)client) != 0) {
+        uv_close((uv_handle_t *)client, delete_handle);
+        return;
+    }
+    
     uv_os_fd_t fd;
-    uv_fileno((uv_handle_t *)server.get(), &fd);
+    uv_fileno((uv_handle_t *)client, &fd);
 
-    shared_ptr<WOLFSSL> client = ssl.accept(fd);
-    if (client == nullptr) {
+    shared_ptr<WOLFSSL> conn = servers[(uv_tcp_t *)server].accept(fd);
+    if (conn == nullptr) {
+        uv_tcp_close_reset(client, delete_handle);
         return;
     }
 
-    manager.handle(server, client);
+    wolfSSL_SetIOReadCtx(conn.get(), client);
+    wolfSSL_SetIOWriteCtx(conn.get(), client);
+
+    // TODO: get the request header
+    // uv_read_start((uv_stream_t *)client.get())
+
+    // manager.handle(client, conn);
+}
+
+void delete_handle(uv_handle_t *handle) {
+    delete handle;
+}
+
+int CIORecv(WOLFSSL *ssl, char *buf, int size, void *ctx) {
+
+}
+
+int CIOSend(WOLFSSL *ssl, char *buf, int size, void *ctx) {
+
 }
 
 int main(int argc, char *argv[]) {
@@ -55,34 +78,41 @@ int main(int argc, char *argv[]) {
 
     GemCapSettings settings;
     settings.loadFile(config);
-    if (!ssl.load(settings.getCert(), settings.getKey())) {
-        return 1;
-    }
     manager.load(settings.getCapsules());
 
     uv_loop_t *loop = uv_default_loop();
 
-    for (int port : manager.getPorts()) {
-        shared_ptr<uv_tcp_t> server = make_shared<uv_tcp_t>();
-        uv_tcp_init(loop, server.get());
+    for (auto conf : manager.getServers()) {
+        uv_tcp_t *server = new uv_tcp_t;
+        uv_tcp_init(loop, server);
 
         sockaddr_in addr;
-        uv_ip4_addr("0.0.0.0", port, &addr);
+        uv_ip4_addr(conf.host.c_str(), conf.port, &addr);
 
-        uv_tcp_bind(server.get(), (const struct sockaddr *)&addr, 0);
+        uv_tcp_bind(server, (const struct sockaddr *)&addr, 0);
         int r = uv_listen((uv_stream_t *) &server, 5, on_new_connection);
         if (r) {
             cout << "Listen error " << uv_strerror(r) << endl;
-            return 2;
+            continue;
         }
 
-        servers.insert(server);
+        if (!servers[server].load(conf.cert, conf.key)) {
+           servers.erase(server);
+           uv_close((uv_handle_t *)server, delete_handle);
+           continue;
+        }
+        WOLFSSL_CTX *ctx = servers[server].getContext();
+        wolfSSL_CTX_SetIORecv(ctx, CIORecv);
+        wolfSSL_CTX_SetIOSend(ctx, CIOSend);
     }
 
     wolfSSL_Init();
 
     int ret = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 
+    for (auto it = servers.begin(); it != servers.end(); ++it) {
+        uv_close((uv_handle_t *)it->first, delete_handle);
+    }
     servers.clear();
 
     uv_loop_close(uv_default_loop());

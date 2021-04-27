@@ -78,9 +78,16 @@ public:
  * Directs requests to the proper handler
  */
 class Manager {
+public:
+    struct ServerSettings {
+        int port;
+        std::string cert;
+        std::string key;
+        std::string host;
+    };
 private:
     std::vector<std::shared_ptr<Handler>> handlers;
-    std::set<int> ports;
+    std::set<ServerSettings> servers;
     Cache cache;
 
     void loadCapsule(YAML::Node &node);
@@ -95,14 +102,13 @@ public:
     /**
      * Handle the request
      * 
-     * @param server uv client connection
+     * @param client uv client connection
      * @param ssl ssl connection
-     * 
-     * @return whether the request was processed
+     * @param request request header
      */
-    bool handle(std::shared_ptr<uv_tcp_t> server, std::shared_ptr<WOLFSSL> ssl);
+    void handle(std::shared_ptr<uv_tcp_t> client, std::shared_ptr<WOLFSSL> ssl, const GeminiRequest &request);
 
-    const std::set<int> &getPorts() const { return ports; }
+    const std::set<ServerSettings> &getServers() const { return servers; }
 };
 
 #endif

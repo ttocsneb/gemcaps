@@ -56,7 +56,7 @@ void Manager::loadCapsule(YAML::Node &node) {
     }
 }
 
-bool Manager::handle(shared_ptr<uv_tcp_t> server, shared_ptr<WOLFSSL> ssl) {
+void Manager::handle(shared_ptr<uv_tcp_t> client, shared_ptr<WOLFSSL> ssl) {
     GeminiRequest request("gemini://foo.bar:80/qwertyiop?asdf\r\n");
     const string &host = request.getHost();
     const string &path = request.getPath();
@@ -64,8 +64,8 @@ bool Manager::handle(shared_ptr<uv_tcp_t> server, shared_ptr<WOLFSSL> ssl) {
     for (auto handler : handlers) {
         if (handler->shouldHandle(host, port, path)) {
             handler->handle(ssl.get(), request);
-            return true;
+            return;
         }
     }
-    return false;
+    return;
 }
