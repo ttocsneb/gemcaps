@@ -30,7 +30,11 @@ void Manager::loadCapsule(YAML::Node &node) {
     auto port = settings.getPort();
     auto confs = settings.getHandlers();
 
-    ports.insert(port);
+    ServerSettings conf;
+    conf.host = host;
+    conf.port = port;
+
+    servers.push_back(conf);
 
     // Iterate through each handler's settings
     for (auto conf : confs) {
@@ -56,14 +60,13 @@ void Manager::loadCapsule(YAML::Node &node) {
     }
 }
 
-void Manager::handle(shared_ptr<uv_tcp_t> client, shared_ptr<WOLFSSL> ssl) {
-    GeminiRequest request("gemini://foo.bar:80/qwertyiop?asdf\r\n");
+void Manager::handle(SSLClient *client, const GeminiRequest &request) {
     const string &host = request.getHost();
     const string &path = request.getPath();
     int port = request.getPort();
-    for (auto handler : handlers) {
+    for (shared_ptr<Handler> handler : handlers) {
         if (handler->shouldHandle(host, port, path)) {
-            handler->handle(ssl.get(), request);
+            handler->handle(client->getSSL(), request);
             return;
         }
     }

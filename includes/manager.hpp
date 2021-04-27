@@ -16,6 +16,7 @@
 #include "cache.hpp"
 #include "glob.hpp"
 #include "settings.hpp"
+#include "server.hpp"
 
 class GeminiRequest {
 private:
@@ -87,7 +88,7 @@ public:
     };
 private:
     std::vector<std::shared_ptr<Handler>> handlers;
-    std::set<ServerSettings> servers;
+    std::vector<ServerSettings> servers;
     Cache cache;
 
     void loadCapsule(YAML::Node &node);
@@ -102,13 +103,12 @@ public:
     /**
      * Handle the request
      * 
-     * @param client uv client connection
-     * @param ssl ssl connection
+     * @param client client
      * @param request request header
      */
-    void handle(std::shared_ptr<uv_tcp_t> client, std::shared_ptr<WOLFSSL> ssl, const GeminiRequest &request);
+    void handle(SSLClient *client, const GeminiRequest &request);
 
-    const std::set<ServerSettings> &getServers() const { return servers; }
+    const std::vector<ServerSettings> &getServers() const { return servers; }
 };
 
 #endif

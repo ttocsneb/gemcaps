@@ -149,7 +149,6 @@ private:
     SSL_ready_cb accept_cb = nullptr;
     void *accept_ctx = nullptr;
 public:
-    SSLServer();
     ~SSLServer();
     /**
      * Load the ssl certificates
