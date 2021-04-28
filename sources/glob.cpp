@@ -11,7 +11,7 @@ void Glob::compile(string glob) {
         size_t pos = glob.find('*');
         if (pos != string::npos) {
             pattern.push_back(glob.substr(0, pos));
-            glob = glob.substr(pos);
+            glob = glob.substr(pos + 1);
             continue;
         }
         break;

@@ -135,6 +135,9 @@ class CapsuleSettings : public Settings {
 private:
     Glob host;
     int port;
+    std::string listen;
+    std::string cert;
+    std::string key;
 
     std::vector<std::shared_ptr<HandlerSettings>> handlers;
 
@@ -158,6 +161,28 @@ public:
      */
     int getPort() const { return port; }
     /**
+     * Get the listen host for the capsule
+     * 
+     * @return listen
+     */
+    const std::string &getListen() const { return listen; }
+    /**
+     * Get the certificate file for the capsule
+     * 
+     * This is only used if the host or port is unique!
+     * 
+     * @return certificate file
+     */
+    const std::string &getCert() const { return cert; }
+    /**
+     * Get the key file for the capsule
+     * 
+     * This is only used if the host or port is unique!
+     * 
+     * @return key file
+     */
+    const std::string &getKey() const { return key; }
+    /**
      * Get the list of handlers for the capsule
      * 
      * @return file handlers
@@ -178,6 +203,8 @@ class GemCapSettings : public Settings {
 private:
     std::string cert;
     std::string key;
+    std::string listen;
+    int port;
     std::string capsules;
 public:
     virtual void load(YAML::Node &settings);
@@ -200,6 +227,24 @@ public:
      * @return capsules directory
      */
     const std::string &getCapsules() const { return capsules; }
+
+    /**
+     * Get the host that the server will listen on
+     * 
+     * The default value is "0.0.0.0"
+     * 
+     * @return listen
+     */
+    const std::string &getListen() const { return listen; }
+
+    /**
+     * Get the port for the server
+     * 
+     * The default value is 1965
+     * 
+     * @return port
+     */
+    int getPort() const { return port; }
 };
 
 #endif

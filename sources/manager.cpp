@@ -4,37 +4,54 @@
 #include "gsgihander.hpp"
 
 #include <filesystem>
+#include <iostream>
 
 using std::string;
 using std::shared_ptr;
 using std::make_shared;
 using std::dynamic_pointer_cast;
 
+using std::cout;
+using std::endl;
+
 namespace fs = std::filesystem;
+
+bool Manager::ServerSettings::operator<(const Manager::ServerSettings &rhs) const {
+    if (port != rhs.port) {
+        return port < rhs.port;
+    }
+    return listen < rhs.listen;
+}
 
 void Manager::load(const string &directory) {
     for (const auto &entry : fs::directory_iterator(directory)) {
         string ext = entry.path().extension();
         if (ext == ".yml" || ext == ".yaml") {
             YAML::Node node = YAML::LoadFile(entry.path().string());
-            loadCapsule(node);
+            loadCapsule(node, entry.path().filename());
         }
     }
 }
 
-void Manager::loadCapsule(YAML::Node &node) {
+void Manager::loadCapsule(YAML::Node &node, const string &file) {
     CapsuleSettings settings;
     settings.load(node);
 
-    auto host = settings.getHost();
-    auto port = settings.getPort();
-    auto confs = settings.getHandlers();
+    const Glob &host = settings.getHost();
+    int port = settings.getPort();
+    const auto &confs = settings.getHandlers();
 
     ServerSettings conf;
-    conf.host = host;
+    conf.listen = settings.getListen();
     conf.port = port;
+    conf.key = settings.getKey();
+    conf.cert = settings.getCert();
 
-    servers.push_back(conf);
+    if(!servers.insert(conf).second) {
+        if (!conf.key.empty() || !conf.cert.empty()) {
+            cout << "Warning: '" << file << "' tried to use a custom certificate for a host that has already been defined. This certificate will not be used!" << endl;
+        }
+    }
 
     // Iterate through each handler's settings
     for (auto conf : confs) {

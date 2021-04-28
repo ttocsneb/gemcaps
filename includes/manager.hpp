@@ -84,14 +84,16 @@ public:
         int port;
         std::string cert;
         std::string key;
-        std::string host;
+        std::string listen;
+
+        bool operator<(const ServerSettings &rhs) const;
     };
 private:
     std::vector<std::shared_ptr<Handler>> handlers;
-    std::vector<ServerSettings> servers;
+    std::set<ServerSettings> servers;
     Cache cache;
 
-    void loadCapsule(YAML::Node &node);
+    void loadCapsule(YAML::Node &node, const std::string &file);
 public:
     /**
      * Load all handlers in the specified directory
@@ -108,7 +110,7 @@ public:
      */
     void handle(SSLClient *client, const GeminiRequest &request);
 
-    const std::vector<ServerSettings> &getServers() const { return servers; }
+    const std::set<ServerSettings> &getServers() const { return servers; }
 };
 
 #endif

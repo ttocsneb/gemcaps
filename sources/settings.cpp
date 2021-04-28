@@ -1,10 +1,15 @@
 #include "settings.hpp"
 
+#include <iostream>
+
 using std::map;
 using std::vector;
 using std::string;
 using std::shared_ptr;
 using std::make_shared;
+
+using std::cerr;
+using std::endl;
 
 namespace YAML {
     template<>
@@ -75,9 +80,28 @@ void CapsuleSettings::load(YAML::Node &settings) {
     handlers.clear();
     if (settings["host"].IsDefined()) {
         host = settings["host"].as<Glob>();
+    } else {
+        host = "*";
     }
     if (settings["port"].IsDefined()) {
         port = settings["port"].as<int>();
+    } else {
+        port = 0;
+    }
+    if (settings["listen"].IsDefined()) {
+        listen = settings["listen"].as<string>();
+    } else {
+        listen = "";
+    }
+    if (settings["cert"].IsDefined()) {
+        cert = settings["cert"].as<string>();
+    } else {
+        listen = "";
+    }
+    if (settings["key"].IsDefined()) {
+        key = settings["key"].as<string>();
+    } else {
+        key = "";
     }
     if (settings["handlers"].IsDefined()) {
         YAML::Node node = settings["handlers"];
@@ -88,9 +112,31 @@ void CapsuleSettings::load(YAML::Node &settings) {
 }
 
 void GemCapSettings::load(YAML::Node &settings) {
-    cert = settings["cert"].as<string>();
-    key = settings["key"].as<string>();
+    try {
+        cert = settings["cert"].as<string>();
+    } catch (std::exception &err) {
+        cerr << "Error: cert is a required option!" << endl;
+        throw err;
+    }
+    try {
+        key = settings["key"].as<string>();
+    } catch (std::exception &err) {
+        cerr << "Error: key is a required option!" << endl;
+        throw err;
+    }
     if (settings["capsules"].IsDefined()) {
         capsules = settings["capsules"].as<string>();
+    } else {
+        capsules = ".";
+    }
+    if (settings["listen"].IsDefined()) {
+        listen = settings["listen"].as<string>();
+    } else {
+        listen = "0.0.0.0";
+    }
+    if (settings["port"].IsDefined()) {
+        port = settings["port"].as<int>();
+    } else {
+        port = 1965;
     }
 }
