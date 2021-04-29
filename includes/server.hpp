@@ -4,6 +4,8 @@
 #include <string>
 #include <sstream>
 #include <memory>
+#include <map>
+#include <set>
 
 #include <wolfssl/options.h>
 #include <wolfssl/ssl.h>
@@ -19,15 +21,13 @@ typedef void(*SSL_ready_cb)(SSLClient *client, void *ctx);
  * SSLClient connects WOLFSSL to libuv
  */
 class SSLClient {
-public:
-    enum State {
-        ACCEPT,
-        READY
-    };
 private:
+
     uv_tcp_t *client;
     WOLFSSL *ssl;
-    std::string buffer;
+    char *buffer = nullptr;
+    int buffer_size = 0;
+    int buffer_len = 0;
 
     SSL_ready_cb rrcb = nullptr;
     void *rrctx = nullptr;
@@ -36,11 +36,7 @@ private:
     SSL_ready_cb ccb = nullptr;
     void *cctx = nullptr;
 
-    bool writing = false;
-    uv_write_t write_req;
-    uv_buf_t write_buf = {nullptr, 0};
-
-    State state = ACCEPT;
+    std::map<uv_write_t*, uv_buf_t*> write_requests;
 public:
     /**
      * Create the SSL client
@@ -52,6 +48,13 @@ public:
      */
     SSLClient(uv_tcp_t *client, WOLFSSL *ssl);
     ~SSLClient();
+
+    /**
+     * Check if the buffer has more data available
+     * 
+     * @return whether there is more data
+     */
+    bool hasData() const { return buffer_len > 0; }
 
     /**
      * Start listening for data
@@ -117,13 +120,6 @@ public:
     WOLFSSL *getSSL() { return ssl; }
 
     /**
-     * Get the current state of the client
-     * 
-     * @return the state of the client
-     */
-    State getState() const { return state; }
-
-    /**
      * Put data in the input buffer
      * 
      * @param read size of the data
@@ -133,9 +129,10 @@ public:
     /**
      * Notify that data has been written to the stream
      * 
+     * @param req write request
      * @param status 0 in case of success, < 0 otherwise
      */
-    void _write(int status);
+    void _write(uv_write_t *req, int status);
 };
 
 /**
@@ -148,6 +145,8 @@ private:
 
     SSL_ready_cb accept_cb = nullptr;
     void *accept_ctx = nullptr;
+
+    std::set<SSLClient*> clients;
 public:
     ~SSLServer();
     /**

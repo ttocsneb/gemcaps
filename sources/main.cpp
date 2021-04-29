@@ -26,18 +26,46 @@ using std::endl;
 
 Manager manager;
 set<shared_ptr<SSLServer>> servers;
+set<SSLClient*> clients;
 
 void delete_handle(uv_handle_t *handle) {
     delete handle;
 }
 
-void accept(SSLClient *client, void *ctx) {
-    WOLFSSL *ssl = client->getSSL();
-
-    int ret = wolfSSL_accept_TLSv13(ssl);
-    // I don't know what to do if accept gets a would-block error
-
+void close(SSLClient *client, void *ctx) {
+    clients.erase(client);
     delete client;
+}
+
+void receive(SSLClient *client, void *ctx) {
+    WOLFSSL *ssl = client->getSSL();
+    while (client->hasData()) {
+
+        char header[1024];
+        int read = wolfSSL_read(ssl, header, 1024);
+        if (read < 0) {
+            if (wolfSSL_want_read(ssl)) {
+                return;
+            }
+            int err = wolfSSL_get_error(ssl, 0);
+            char buffer[80];
+            wolfSSL_ERR_error_string(err, buffer);
+            cerr << "wolfSSL error: " << buffer << endl;
+            continue;
+        }
+        string data(header, read);
+
+        cout << "Read data: (" << read << ") '" << data << "'" << endl;
+
+        client->setWriteReadyCallback(close);
+        string msg = "20 text/gemini\nHello World!\n";
+        read = wolfSSL_write(ssl, msg.c_str(), msg.length());
+    }
+}
+
+void accept(SSLClient *client, void *ctx) {
+    client->setReadReadyCallback(receive, ctx);
+    clients.insert(client);
 }
 
 int main(int argc, char *argv[]) {
@@ -94,6 +122,9 @@ int main(int argc, char *argv[]) {
 
     int ret = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 
+    for (SSLClient *client : clients) {
+        delete client;
+    }
     servers.clear();
     uv_loop_close(uv_default_loop());
     wolfSSL_Cleanup();

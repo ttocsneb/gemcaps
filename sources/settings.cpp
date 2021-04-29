@@ -105,8 +105,9 @@ void CapsuleSettings::load(YAML::Node &settings) {
     }
     if (settings["handlers"].IsDefined()) {
         YAML::Node node = settings["handlers"];
-        for (auto it = node.begin(); it != node.end(); ++it) {
-            _load_handler(it->second);
+        for (YAML::iterator it = node.begin(); it != node.end(); ++it) {
+            YAML::Node n = *it;
+            _load_handler(n);
         }
     }
 }
