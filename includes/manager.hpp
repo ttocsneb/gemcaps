@@ -23,6 +23,27 @@ typedef struct {
     Handler *handler;
 } ClientContext;
 
+typedef void(*ContextDestructorCB)(void *ctx);
+
+class ClientContext {
+private:
+    std::string buffer;
+    Handler *handler = nullptr;
+    void *context = nullptr;
+
+    ContextDestructorCB destructor = nullptr;
+public:
+    ~ClientContext();
+
+    void setContext(void *ctx, ContextDestructorCB cb);
+    void *getContext() { return context; }
+
+    void setHandler(Handler *handler) { this->handler = handler; }
+    Handler *getHandler() { return handler; }
+
+    std::string &getBuffer() { return buffer; }
+};
+
 class GeminiRequest {
 private:
     std::string schema;

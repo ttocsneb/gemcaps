@@ -18,6 +18,20 @@ using std::endl;
 
 namespace fs = std::filesystem;
 
+ClientContext::~ClientContext() {
+    if (destructor) {
+        destructor(context);
+    }
+}
+
+void ClientContext::setContext(void *ctx, ContextDestructorCB cb) {
+    if (destructor) {
+        destructor(context);
+    }
+    destructor = cb;
+    context = ctx;
+}
+
 GeminiRequest::GeminiRequest(string request)
         : port(0),
           valid(true) {
