@@ -19,7 +19,8 @@ using std::endl;
 namespace fs = std::filesystem;
 
 GeminiRequest::GeminiRequest(string request)
-        : port(0) {
+        : port(0),
+          valid(true) {
     // Remove any leading or trailing whitespace
 
     // Find the first character of the request
@@ -37,9 +38,12 @@ GeminiRequest::GeminiRequest(string request)
         }
     }
 
+    this->request = request;
+
     // Parse the request
     size_t pos = request.find("://");
     if (pos == string::npos) {
+        valid = false;
         return;
     }
     schema = request.substr(0, pos);
@@ -50,6 +54,10 @@ GeminiRequest::GeminiRequest(string request)
         // There is a port
         // Get the port
         host = request.substr(start, pos - start);
+        if (host.empty() || host.at(0) == '/') {
+            valid = false;
+            return;
+        }
         start = pos + 1;
         pos = request.find("/", start);
         if (pos == string::npos) {
@@ -69,6 +77,35 @@ GeminiRequest::GeminiRequest(string request)
         // There is a path
         port = atoi(request.substr(start, pos - start).c_str());
         start = pos;
+    } else {
+        pos = request.find("/", start);
+        if (pos == string::npos) {
+            pos = request.find("?", start);
+            if (pos == string::npos) {
+                // There is no query
+                host = request.substr(start);
+                if (host.empty()) {
+                    valid = false;
+                }
+                return;
+            }
+            // There is a query
+            host = request.substr(start, pos - start);
+            if (host.empty()) {
+                valid = false;
+                return;
+            }
+            // Get the query component
+            query = request.substr(pos);
+            return;
+        }
+        // There is a path
+        host = request.substr(start, pos - start);
+        if (host.empty()) {
+            valid = false;
+            return;
+        }
+        start = pos;
     }
     // get path component
     pos = request.find("?", start);
@@ -81,6 +118,19 @@ GeminiRequest::GeminiRequest(string request)
 
     // get the query component
     query = request.substr(pos);
+
+    // Validate the schema
+    static const string Schema("gemini");
+    if (schema.length() != Schema.length()) {
+        valid = false;
+        return;
+    }
+    for (int i = 0; i < Schema.length(); ++i) {
+        if (tolower(schema.at(i)) != tolower(Schema.at(i))) {
+            valid = false;
+            return;
+        }
+    }
 }
 
 bool Manager::ServerSettings::operator<(const Manager::ServerSettings &rhs) const {
@@ -150,7 +200,7 @@ void Manager::handle(SSLClient *client, const GeminiRequest &request) {
     int port = request.getPort();
     for (shared_ptr<Handler> handler : handlers) {
         if (handler->shouldHandle(host, port, path)) {
-            handler->handle(client->getSSL(), request);
+            handler->handle(client, request);
             return;
         }
     }

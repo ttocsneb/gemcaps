@@ -13,10 +13,10 @@ class FileHandler : public Handler {
 private:
     std::shared_ptr<FileSettings> settings;
 public:
-    FileHandler(std::shared_ptr<FileSettings> settings, Glob host, int port)
+    FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Glob host, int port)
         : settings(settings),
-          Handler(host, port) {}
-    CacheData handle(WOLFSSL *ssl, const GeminiRequest &request);
+          Handler(cache, host, port) {}
+    void handle(SSLClient *client, const GeminiRequest &request);
 };
 
 #endif

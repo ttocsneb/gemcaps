@@ -18,6 +18,11 @@
 #include "settings.hpp"
 #include "server.hpp"
 
+typedef struct {
+    std::string buffer;
+    Handler *handler;
+} ClientContext;
+
 class GeminiRequest {
 private:
     std::string schema;
@@ -26,9 +31,11 @@ private:
     std::string path;
     std::string query;
     std::string request;
+    bool valid;
 public:
     GeminiRequest(std::string request);
 
+    bool isValid() const { return valid; }
     const std::string &getSchema() const {return schema; }
     const std::string &getHost() const { return host; }
     int getPort() const { return port; }
@@ -44,15 +51,25 @@ class Handler {
 private:
    Glob host;
    int port;
+   Cache *cache;
+protected:
+    /**
+     * Get the cache
+     * 
+     * @return cache
+     */
+    Cache *getCache() const { return cache; }
 public:
     /**
      * Create a new handler
      * 
+     * @param cache cache to use
      * @param host host to match against
      * @param port port to match against
      */
-    Handler(Glob host, int port)
-        : host(host),
+    Handler(Cache *cache, Glob host, int port)
+        : cache(cache),
+          host(host),
           port(port) {}
 
     /**
@@ -71,10 +88,10 @@ public:
     /**
      * Handle the requset
      * 
-     * @param ssl ssl context
+     * @param client SSL Client
      * @param request gemini request
      */
-    virtual CacheData handle(WOLFSSL *ssl, const GeminiRequest &request) = 0;
+    virtual void handle(SSLClient *client, const GeminiRequest &request) = 0;
 };
 
 /**

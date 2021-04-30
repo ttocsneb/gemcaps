@@ -4,6 +4,9 @@
 #include <string>
 #include <map>
 #include <set>
+#include <memory>
+
+#include <uv.h>
 
 typedef struct {
     std::string meta;
@@ -14,31 +17,137 @@ typedef struct {
 
 unsigned int sizeofCache(CacheData *data);
 
-typedef void (*CacheReady)(const CacheData &data, void *);
+typedef void (*CacheReadyCB)(const CacheData &data, void *);
+
+void cache_info_timer_cb(uv_timer_t *handle);
+
+class CacheInfo {
+private:
+    std::shared_ptr<uv_timer_t> timer;
+    std::map<CacheReadyCB, void *> callbacks;
+    bool loading;
+    bool timer_active;
+    bool ready;
+
+    Cache *manager;
+
+    CacheData data;
+    std::string name;
+public:
+    CacheInfo(uv_loop_t *loop, Cache *manager, std::string name);
+    ~CacheInfo();
+
+    /**
+     * Set the timeout for the timer
+     * 
+     * @param time time in ms before calling Cache::_onCacheTimer()
+     */
+    void setTimout(unsigned int time);
+    /**
+     * Stop the timer
+     */
+    void stopTimer();
+    /**
+     * Get the amount of time left in the timer
+     * 
+     * @return time
+     */
+    unsigned int getTime() const;
+    /**
+     * Add a callback for notifying when the cache is ready
+     * 
+     * @param cb callback
+     * @param ctx context
+     */
+    void addCallback(CacheReadyCB cb, void *ctx) { callbacks.insert_or_assign(cb, ctx); }
+
+    /**
+     * Set the state of the cache to be loading the cache
+     */
+    void setLoading();
+    /**
+     * Set the state of the cache to be loaded and notify all callbacks that it is loaded
+     */
+    void setLoaded();
+    /**
+     * Check whether the cache is loading
+     * 
+     * @return whether it is loading
+     */
+    bool isLoading() const { return loading; }
+    /**
+     * Check if the cache is loaded
+     * 
+     * @return whether it is loaded
+     */
+    bool isLoaded() const { return ready; }
+
+    /**
+     * Get the data in the cache
+     * 
+     * @return the cache data
+     */
+    const CacheData &getData() const { return data; }
+    /**
+     * Set the data in the cache
+     * 
+     * @param data
+     */
+    void setData(const CacheData &data) { this->data = data; }
+
+    /**
+     * Get the name of the cache
+     * 
+     * @return name
+     */
+    const std::string &getName() const { return name; }
+
+    /**
+     * Called when the timer has run out
+     */
+    void _timeout();
+};
+
 
 class Cache {
 private:
-    typedef struct {
-        int cache_start;
-        std::map<CacheReady, void *> callbacks;
-        bool loading;
-    } CacheInfo;
+    uv_loop_t *loop;
 
     const unsigned int max_size;
-    unsigned int used_data;
 
-    std::map<std::string, CacheData> cache;
-    std::map<std::string, CacheInfo> cache_info;
+    std::map<std::string, CacheInfo> cache;
 
-    void _clear_old_cache();
+    /**
+     * Remove the cache closest to timing out
+     */
+    void _remove_old_cache();
+protected:
+    /**
+     * Called when a cach times out
+     * 
+     * @param info cache that timed out
+     */
+    void _onCacheTimer(CacheInfo *info);
+
+    /**
+     * Get or create a cache
+     * 
+     * @param name cache name
+     * 
+     * @return cache
+     */
+    CacheInfo &_get(const std::string &name);
+
+    friend CacheInfo;
 public:
     /**
      * Create a cache with a maximum memory limit
      * 
      * @param max_size the maximum number of bytes to store in the cache (A value of 0 means no limit)
      */
-    Cache(unsigned int max_size = 0)
-        : max_size(max_size) {}
+    Cache(uv_loop_t *loop, unsigned int max_size = 0)
+        : loop(loop),
+          max_size(max_size) {}
     
     /**
      * Let the cache know that the name is actively being loaded
@@ -55,10 +164,19 @@ public:
      * @param data data to add
      */
     void add(const std::string &name, CacheData data);
+
     /**
      * Clear all data in the cache
      */
     void clear();
+    /**
+     * Invalidate a cache
+     * 
+     * This can be useful if we know that the data has been updated
+     * 
+     * @param name name of the cache
+     */
+    void invalidate(const std::string &name);
 
     /**
      * Get a notification when the cache is ready
@@ -69,7 +187,7 @@ public:
      * 
      * @return whether the function will be notified
      */
-    bool getNotified(const std::string &name, CacheReady callback, void *argument = nullptr);
+    bool getNotified(const std::string &name, CacheReadyCB callback, void *argument = nullptr);
 
     /**
      * Check if a cache is being loaded
@@ -80,13 +198,13 @@ public:
      */
     bool isLoading(const std::string &name) const;
     /**
-     * Check if the cache exists
+     * Check if the cache is loaded
      * 
      * @param name name of the cache
      * 
-     * @return whether the cache is available
+     * @return whether the cache is loaded
      */
-    bool contains(const std::string &name) const;
+    bool isLoaded(const std::string &name) const;
     /**
      * Retrieve the cache
      * 

@@ -18,6 +18,10 @@ using std::cout;
 using std::cerr;
 using std::endl;
 
+void delete_handle(uv_handle_t *handle) {
+    delete handle;
+}
+
 void cb_uv_read(uv_stream_t *stream, ssize_t read, const uv_buf_t *buf) {
     // Data is ready to be read from the stream
     SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data((uv_handle_t *)stream));
@@ -179,7 +183,7 @@ void SSLClient::_close() {
     delete client;
     client = nullptr;
     if (ccb) {
-        ccb(this);
+        ccb(this, cctx);
     }
 }
 
@@ -203,7 +207,7 @@ void SSLClient::_receive(ssize_t read, const uv_buf_t *buf) {
     }
     if (rrcb) {
         do {
-            rrcb(this);
+            rrcb(this, rrctx);
         } while (hasData() && !wolfSSL_want_read(ssl));
     }
 }
@@ -215,7 +219,7 @@ void SSLClient::_write(uv_write_t *req, int status) {
     write_requests.erase(req);
     delete req;
     if (wrcb) {
-        wrcb(this);
+        wrcb(this, wrctx);
     }
     write_requests.erase(req);
 }
@@ -238,8 +242,12 @@ void new_connection(uv_stream_t *stream, int status) {
     server->_accept(conn);
 }
 
-void default_close_handler(SSLClient *client) {
+void default_close_handler(SSLClient *client, void *ctx) {
     delete client;
+}
+
+void SSLServer::_notify_death(SSLClient *client) {
+    clients.erase(client);
 }
 
 SSLServer::~SSLServer() {
@@ -248,6 +256,9 @@ SSLServer::~SSLServer() {
     }
     if (server != nullptr) {
         uv_close((uv_handle_t *)server, delete_handle);
+    }
+    for (SSLClient *client : clients) {
+        delete client;
     }
 }
 
@@ -308,6 +319,6 @@ void SSLServer::_accept(uv_tcp_t *conn) {
     }
     SSLClient *client = new SSLClient(conn, ssl);
     client->setCloseCallback(default_close_handler);
-    accept_cb(client);
+    accept_cb(client, accept_ctx);
     client->listen();
 }

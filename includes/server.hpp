@@ -15,7 +15,9 @@
 
 class SSLClient;
 
-typedef void(*SSL_ready_cb)(SSLClient *client);
+typedef void(*SSL_ready_cb)(SSLClient *client, void *ctx);
+
+void delete_handle(uv_handle_t *handle);
 
 /**
  * SSLClient connects WOLFSSL to libuv
@@ -29,10 +31,11 @@ private:
     int buffer_len = 0;
 
     SSL_ready_cb rrcb = nullptr;
+    void *rrctx = nullptr;
     SSL_ready_cb wrcb = nullptr;
+    void *wrctx = nullptr;
     SSL_ready_cb ccb = nullptr;
-
-    void *context = nullptr;
+    void *cctx = nullptr;
 
     std::map<uv_write_t*, uv_buf_t*> write_requests;
 public:
@@ -113,27 +116,13 @@ public:
     void close();
 
     /**
-     * set the context for the client
-     *
-     * @param context context to set
-     */
-    void setContext(void *context) { this->context = context; }
-
-    /**
-     * Get the context
-     * 
-     * @return context
-     */
-    void *getContext() const { return context; }
-
-    /**
      * Set the read ready callback
      * 
      * This is called when data is ready to read
      * 
      * @param cb callback
      */
-    void setReadReadyCallback(SSL_ready_cb cb) { rrcb = cb; }
+    void setReadReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { rrcb = cb; rrctx = ctx; }
     /**
      * Set the write ready callback
      * 
@@ -141,7 +130,7 @@ public:
      * 
      * @param cb callback
      */
-    void setWriteReadyCallback(SSL_ready_cb cb) { wrcb = cb; }
+    void setWriteReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { wrcb = cb; wrctx = ctx; }
     /**
      * Set the close callback
      * 
@@ -149,7 +138,7 @@ public:
      * 
      * @param cb callback
      */
-    void setCloseCallback(SSL_ready_cb cb) { ccb = cb; }
+    void setCloseCallback(SSL_ready_cb cb, void *ctx = nullptr) { ccb = cb; cctx = ctx; }
 
     /**
      * Send data to the client
@@ -210,6 +199,13 @@ private:
     void *accept_ctx = nullptr;
 
     std::set<SSLClient*> clients;
+protected:
+    /**
+     * Notify that a client is being destroyed
+     */
+    void _notify_death(SSLClient *client);
+
+    friend SSLClient;
 public:
     ~SSLServer();
     /**

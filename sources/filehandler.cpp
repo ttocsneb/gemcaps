@@ -1,6 +1,13 @@
 #include "filehandler.hpp"
 
+#include <filesystem>
 
-CacheData FileHandler::handle(WOLFSSL *ctx, const GeminiRequest &request) {
+namespace fs = std::filesystem;
 
+
+void FileHandler::handle(SSLClient *client, const GeminiRequest &request) {
+    // TODO: get relative base to base of the 
+    fs::path path(settings->getRoot());
+    path /= request.getPath();
+    
 }

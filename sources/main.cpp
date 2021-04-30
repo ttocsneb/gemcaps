@@ -24,33 +24,25 @@ using std::cout;
 using std::cerr;
 using std::endl;
 
-typedef struct {
-    string header;
-} ClientContext;
-
 Manager manager;
 set<shared_ptr<SSLServer>> servers;
 set<SSLClient*> clients;
 
-void onClientClose(SSLClient *client) {
+void onClientClose(SSLClient *client, void *ctx) {
     clients.erase(client);
-    ClientContext *context = static_cast<ClientContext *>(client->getContext());
+    ClientContext *context = static_cast<ClientContext *>(ctx);
     if (context) {
         delete context;
     }
     delete client;
 }
 
-void delete_handle(uv_handle_t *handle) {
-    delete handle;
-}
-
-void close(SSLClient *client) {
+void close(SSLClient *client, void *ctx) {
     clients.erase(client);
     delete client;
 }
 
-void receive(SSLClient *client) {
+void receive(SSLClient *client, void *ctx) {
     char header[1024];
     int read = client->read(header, sizeof(header));
     if (read < 0) {
@@ -61,34 +53,34 @@ void receive(SSLClient *client) {
         return;
     }
     string data(header, read);
-    ClientContext *context = static_cast<ClientContext *>(client->getContext());
+    ClientContext *context = static_cast<ClientContext *>(ctx);
     if (context) {
-        context->header += string(header, read);
+        context->buffer += string(header, read);
         // Close the connection if the header is too big
-        if (context->header.length() > 1024) {
+        if (context->buffer.length() > 1024) {
             client->close();
             return;
         }
         // The client hasn't sent all of the data
-        if (context->header.find('\n') == string::npos) {
+        if (context->buffer.find('\n') == string::npos) {
             return;
         }
-        GeminiRequest request(context->header);
-        manager.handle(client, request);
-        return;
-    } else {
-        client->close();
+        GeminiRequest request(context->buffer);
+        if (request.isValid()) {
+            manager.handle(client, request);
+            return;
+        }
     }
+    client->close();
 }
 
-void accept(SSLClient *client) {
+void accept(SSLClient *client, void *ctx) {
     ClientContext *context = new ClientContext({
-        .header = ""
+        .buffer = ""
     });
     // TODO: make a timout timer
-    client->setContext(context);
-    client->setReadReadyCallback(receive);
-    client->setCloseCallback(onClientClose);
+    client->setReadReadyCallback(receive, context);
+    client->setCloseCallback(onClientClose, context);
     clients.insert(client);
 }
 

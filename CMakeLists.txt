@@ -5,7 +5,7 @@ project(GemCaps
 )
 
 file(GLOB_RECURSE
-    sources ./sources/*
+    sources ${PROJECT_SOURCE_DIR}/sources/*
 )
 
 SET(CMAKE_CXX_STANDARD 17)
@@ -33,3 +33,42 @@ target_link_libraries(gemcaps PUBLIC
     wolfssl
     uv
 )
+
+
+include(CTest)
+
+if(CMAKE_TESTING_ENABLED)
+    list(FILTER sources EXCLUDE REGEX
+        ".*main.cpp$"
+    )
+    file(GLOB_RECURSE
+        tests ${PROJECT_SOURCE_DIR}/test/*
+    )
+
+    add_subdirectory(${PROJECT_SOURCE_DIR}/lib/googletest)
+
+    add_executable(test_gemcaps
+        ${sources}
+        ${tests}
+    )
+    target_include_directories(test_gemcaps PUBLIC
+        ${PROJECT_SOURCE_DIR}/includes
+        ${PROJECT_SOURCE_DIR}/lib/yaml-cpp/include
+        ${PROJECT_SOURCE_DIR}/lib/libuv/include
+        ${PROJECT_SOURCE_DIR}/lib/wolfssl
+        ${PROJECT_SOURCE_DIR}/lib/googletest/include
+    )
+    target_link_libraries(test_gemcaps PUBLIC
+        pthread
+        benstools
+        yaml-cpp
+        wolfssl
+        uv
+        gtest
+        gtest_main
+    )
+
+    add_test(NAME test_gemcaps
+        COMMAND ${PROJECT_BINARY_DIR}/test_gemcaps
+    )
+endif()
