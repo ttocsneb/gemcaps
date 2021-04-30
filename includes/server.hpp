@@ -15,14 +15,13 @@
 
 class SSLClient;
 
-typedef void(*SSL_ready_cb)(SSLClient *client, void *ctx);
+typedef void(*SSL_ready_cb)(SSLClient *client);
 
 /**
  * SSLClient connects WOLFSSL to libuv
  */
 class SSLClient {
 private:
-
     uv_tcp_t *client;
     WOLFSSL *ssl;
     char *buffer = nullptr;
@@ -30,11 +29,10 @@ private:
     int buffer_len = 0;
 
     SSL_ready_cb rrcb = nullptr;
-    void *rrctx = nullptr;
     SSL_ready_cb wrcb = nullptr;
-    void *wrctx = nullptr;
     SSL_ready_cb ccb = nullptr;
-    void *cctx = nullptr;
+
+    void *context = nullptr;
 
     std::map<uv_write_t*, uv_buf_t*> write_requests;
 public:
@@ -66,32 +64,92 @@ public:
     void stop_listening();
 
     /**
+     * Read data from the client
+     * 
+     * @param buffer buffer to put the data
+     * @param size number of bytes to read
+     * 
+     * @return number of bytes read, or -1 on error
+     */
+    int read(void *buffer, int size);
+    /**
+     * Write data to the client
+     * 
+     * @param data data to send
+     * @param size number of bytes to send
+     * 
+     * @return number of bytes written, or -1 on error
+     */
+    int write(void *data, int size);
+
+    /**
+     * Check if the server needs to wait for data
+     * 
+     * @return should wait for client
+     */
+    bool wants_read() const;
+    /**
+     * Check if the connection is still open
+     * 
+     * @return whether the connection is open
+     */
+    bool is_open() const;
+    /**
+     * Get the last wolfSSL error
+     * 
+     * @return the last wolfSSL error
+     */
+    int get_error() const;
+    /**
+     * Get the last wolfSSL error string
+     * 
+     * @return the last wolfSSL error string
+     */
+    std::string get_error_string() const;
+
+    /**
+     * Close the connection
+     */
+    void close();
+
+    /**
+     * set the context for the client
+     *
+     * @param context context to set
+     */
+    void setContext(void *context) { this->context = context; }
+
+    /**
+     * Get the context
+     * 
+     * @return context
+     */
+    void *getContext() const { return context; }
+
+    /**
      * Set the read ready callback
      * 
      * This is called when data is ready to read
      * 
      * @param cb callback
-     * @param ctx context
      */
-    void setReadReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { rrcb = cb; rrctx = ctx;}
+    void setReadReadyCallback(SSL_ready_cb cb) { rrcb = cb; }
     /**
      * Set the write ready callback
      * 
      * This is called when data has been written
      * 
      * @param cb callback
-     * @param ctx context
      */
-    void setWriteReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { wrcb = cb; wrctx = ctx; }
+    void setWriteReadyCallback(SSL_ready_cb cb) { wrcb = cb; }
     /**
      * Set the close callback
      * 
      * This is called when an error occured while reading
      * 
      * @param cb callback
-     * @param ctx context
      */
-    void setCloseCallback(SSL_ready_cb cb, void *ctx = nullptr) { ccb = cb; cctx = ctx; }
+    void setCloseCallback(SSL_ready_cb cb) { ccb = cb; }
 
     /**
      * Send data to the client
@@ -133,6 +191,11 @@ public:
      * @param status 0 in case of success, < 0 otherwise
      */
     void _write(uv_write_t *req, int status);
+
+    /**
+     * Called after the client has been closed
+     */
+    void _close();
 };
 
 /**

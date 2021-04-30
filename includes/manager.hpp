@@ -20,6 +20,7 @@
 
 class GeminiRequest {
 private:
+    std::string schema;
     std::string host;
     int port;
     std::string path;
@@ -28,6 +29,7 @@ private:
 public:
     GeminiRequest(std::string request);
 
+    const std::string &getSchema() const {return schema; }
     const std::string &getHost() const { return host; }
     int getPort() const { return port; }
     const std::string &getPath() const { return path; }

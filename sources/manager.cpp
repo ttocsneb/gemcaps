@@ -5,16 +5,83 @@
 
 #include <filesystem>
 #include <iostream>
+#include <sstream>
 
 using std::string;
 using std::shared_ptr;
 using std::make_shared;
 using std::dynamic_pointer_cast;
+using std::stringstream;
 
 using std::cout;
 using std::endl;
 
 namespace fs = std::filesystem;
+
+GeminiRequest::GeminiRequest(string request)
+        : port(0) {
+    // Remove any leading or trailing whitespace
+
+    // Find the first character of the request
+    for (int i = 0; i < request.length(); ++i) {
+        if (!isspace(request.at(i))) {
+            request = request.substr(i);
+            break;
+        }
+    }
+    // Find the last character of the request
+    for (int i = request.length() - 1; i >= 0; --i) {
+        if (!isspace(request.at(i))) {
+            request = request.substr(0, i + 1);
+            break;
+        }
+    }
+
+    // Parse the request
+    size_t pos = request.find("://");
+    if (pos == string::npos) {
+        return;
+    }
+    schema = request.substr(0, pos);
+    size_t start = pos + 3;
+    pos = request.find(":", start);
+    // Check if there is a port or not
+    if (pos != string::npos) {
+        // There is a port
+        // Get the port
+        host = request.substr(start, pos - start);
+        start = pos + 1;
+        pos = request.find("/", start);
+        if (pos == string::npos) {
+            // There is no path
+            pos = request.find("?", start);
+            if (pos == string::npos) {
+                // There is no query
+                port = atoi(request.substr(start).c_str());
+                return;
+            }
+            // There is a query
+            port = atoi(request.substr(start, pos - start).c_str());
+            // get query component
+            query = request.substr(pos);
+            return;
+        }
+        // There is a path
+        port = atoi(request.substr(start, pos - start).c_str());
+        start = pos;
+    }
+    // get path component
+    pos = request.find("?", start);
+    if (pos == string::npos) {
+        // There is no query component
+        path = request.substr(start);
+        return;
+    }
+    path = request.substr(start, pos - start);
+
+    // get the query component
+    query = request.substr(pos);
+}
 
 bool Manager::ServerSettings::operator<(const Manager::ServerSettings &rhs) const {
     if (port != rhs.port) {

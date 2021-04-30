@@ -43,6 +43,13 @@ void cb_uv_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
     buf->len = suggested_size;
 }
 
+void cb_uv_close(uv_handle_t *handle) {
+    SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data(handle));
+    if (client) {
+        client->_close();
+    }
+}
+
 int cb_IORecv(WOLFSSL *ssl, char *buf, int size, void *ctx) {
     SSLClient *client = static_cast<SSLClient *>(ctx);
     if (!client) {
@@ -69,8 +76,10 @@ SSLClient::SSLClient(uv_tcp_t *client, WOLFSSL *ssl)
 
 SSLClient::~SSLClient() {
     wolfSSL_free(ssl);
-    uv_unref((uv_handle_t *)client);
-    uv_close((uv_handle_t *)client, delete_handle);
+    if (client) {
+        uv_unref((uv_handle_t *)client);
+        uv_close((uv_handle_t *)client, delete_handle);
+    }
     ssl = nullptr;
     client = nullptr;
     if (buffer != nullptr) {
@@ -92,7 +101,43 @@ void SSLClient::stop_listening() {
     uv_read_stop((uv_stream_t *)client);
 }
 
+int SSLClient::read(void *buffer, int size) {
+    return wolfSSL_read(ssl, buffer, size);
+}
+
+int SSLClient::write(void *data, int size) {
+    return wolfSSL_write(ssl, data, size);
+}
+
+void SSLClient::close() {
+    if (client) {
+        uv_unref((uv_handle_t *)client);
+        uv_close((uv_handle_t *)client, cb_uv_close);
+    }
+}
+
+bool SSLClient::wants_read() const {
+    return wolfSSL_want_read(ssl);
+}
+
+bool SSLClient::is_open() const {
+    return client != nullptr;
+}
+
+int SSLClient::get_error() const {
+    return wolfSSL_get_error(ssl, 0);
+}
+
+string SSLClient::get_error_string() const {
+    char buf[80];
+    wolfSSL_ERR_error_string(wolfSSL_get_error(ssl, 0), buf);
+    return string(buf);
+}
+
 int SSLClient::_send(const char *buf, size_t size) {
+    if (!is_open()) {
+        return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+    }
     char *msg = new char[size];
     memcpy(msg, buf, size);
 
@@ -112,6 +157,9 @@ int SSLClient::_send(const char *buf, size_t size) {
 
 int SSLClient::_recv(char *buf, size_t size) {
     if (buffer_len == 0) {
+        if (!is_open()) {
+            return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+        }
         return WOLFSSL_CBIO_ERR_WANT_READ;
     }
     int len = size;
@@ -127,12 +175,17 @@ int SSLClient::_recv(char *buf, size_t size) {
     return len;
 }
 
+void SSLClient::_close() {
+    delete client;
+    client = nullptr;
+    if (ccb) {
+        ccb(this);
+    }
+}
+
 void SSLClient::_receive(ssize_t read, const uv_buf_t *buf) {
     if (read < 0) {
-        uv_read_stop((uv_stream_t *)client);
-        if (ccb) {
-            ccb(this, cctx);
-        }
+        close();
         return;
     }
     if (read > 0) {
@@ -149,7 +202,9 @@ void SSLClient::_receive(ssize_t read, const uv_buf_t *buf) {
         buffer_len += read;
     }
     if (rrcb) {
-        rrcb(this, rrctx);
+        do {
+            rrcb(this);
+        } while (hasData() && !wolfSSL_want_read(ssl));
     }
 }
 
@@ -160,7 +215,7 @@ void SSLClient::_write(uv_write_t *req, int status) {
     write_requests.erase(req);
     delete req;
     if (wrcb) {
-        wrcb(this, wrctx);
+        wrcb(this);
     }
     write_requests.erase(req);
 }
@@ -183,7 +238,7 @@ void new_connection(uv_stream_t *stream, int status) {
     server->_accept(conn);
 }
 
-void default_close_handler(SSLClient *client, void *ctx) {
+void default_close_handler(SSLClient *client) {
     delete client;
 }
 
@@ -253,6 +308,6 @@ void SSLServer::_accept(uv_tcp_t *conn) {
     }
     SSLClient *client = new SSLClient(conn, ssl);
     client->setCloseCallback(default_close_handler);
-    accept_cb(client, accept_ctx);
+    accept_cb(client);
     client->listen();
 }

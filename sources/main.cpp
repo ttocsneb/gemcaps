@@ -24,47 +24,71 @@ using std::cout;
 using std::cerr;
 using std::endl;
 
+typedef struct {
+    string header;
+} ClientContext;
+
 Manager manager;
 set<shared_ptr<SSLServer>> servers;
 set<SSLClient*> clients;
+
+void onClientClose(SSLClient *client) {
+    clients.erase(client);
+    ClientContext *context = static_cast<ClientContext *>(client->getContext());
+    if (context) {
+        delete context;
+    }
+    delete client;
+}
 
 void delete_handle(uv_handle_t *handle) {
     delete handle;
 }
 
-void close(SSLClient *client, void *ctx) {
+void close(SSLClient *client) {
     clients.erase(client);
     delete client;
 }
 
-void receive(SSLClient *client, void *ctx) {
-    WOLFSSL *ssl = client->getSSL();
-    while (client->hasData()) {
-
-        char header[1024];
-        int read = wolfSSL_read(ssl, header, 1024);
-        if (read < 0) {
-            if (wolfSSL_want_read(ssl)) {
-                return;
-            }
-            int err = wolfSSL_get_error(ssl, 0);
-            char buffer[80];
-            wolfSSL_ERR_error_string(err, buffer);
-            cerr << "wolfSSL error: " << buffer << endl;
-            continue;
+void receive(SSLClient *client) {
+    char header[1024];
+    int read = client->read(header, sizeof(header));
+    if (read < 0) {
+        if (client->wants_read()) {
+            return;
         }
-        string data(header, read);
-
-        cout << "Read data: (" << read << ") '" << data << "'" << endl;
-
-        client->setWriteReadyCallback(close);
-        string msg = "20 text/gemini\nHello World!\n";
-        read = wolfSSL_write(ssl, msg.c_str(), msg.length());
+        cerr << "wolfSSL error: " << client->get_error_string() << endl;
+        return;
+    }
+    string data(header, read);
+    ClientContext *context = static_cast<ClientContext *>(client->getContext());
+    if (context) {
+        context->header += string(header, read);
+        // Close the connection if the header is too big
+        if (context->header.length() > 1024) {
+            client->close();
+            return;
+        }
+        // The client hasn't sent all of the data
+        if (context->header.find('\n') == string::npos) {
+            return;
+        }
+        GeminiRequest request(context->header);
+        manager.handle(client, request);
+        return;
+    } else {
+        client->close();
     }
 }
 
-void accept(SSLClient *client, void *ctx) {
-    client->setReadReadyCallback(receive, ctx);
+void accept(SSLClient *client) {
+    ClientContext *context = new ClientContext({
+        .header = ""
+    });
+    // TODO: make a timout timer
+    client->setContext(context);
+    client->setReadReadyCallback(receive);
+    client->setCloseCallback(onClientClose);
     clients.insert(client);
 }
 
