@@ -8,13 +8,6 @@ using std::string;
 using std::vector;
 using std::make_shared;
 
-unsigned int sizeofCache(CacheData *data) {
-    unsigned int size = 0;
-    size += data->body.size();
-    size += data->meta.size();
-    return size;
-}
-
 //////////////////// CacheInfo ////////////////////
 
 void cache_info_timer_cb(uv_timer_t *handle) {
@@ -36,7 +29,9 @@ CacheInfo::CacheInfo(uv_loop_t *loop, Cache *manager, string name)
 }
 
 CacheInfo::~CacheInfo() {
-    uv_timer_stop(timer.get());
+    if (timer != nullptr) {
+        uv_timer_stop(timer.get());
+    }
 }
 
 void CacheInfo::setTimout(unsigned int time) {
@@ -99,7 +94,8 @@ void Cache::_onCacheTimer(CacheInfo *info) {
 
 CacheInfo &Cache::_get(const string &name) {
     if (!cache.count(name)) {
-        cache[name] = CacheInfo(loop, this, name);
+        std::pair<string, CacheInfo> p(name, CacheInfo(loop, this, name));
+        cache.insert(p);
     }
     return cache.at(name);
 }
@@ -111,8 +107,10 @@ void Cache::loading(const string &name) {
 }
 
 void Cache::add(const string &name, CacheData data) {
-    while (cache.size() >= max_size) {
-        _remove_old_cache();
+    if (max_size > 0) {
+        while (cache.size() >= max_size) {
+            _remove_old_cache();
+        }
     }
     CacheInfo &c = _get(name);
     c.setData(data);

@@ -18,31 +18,7 @@
 #include "settings.hpp"
 #include "server.hpp"
 
-typedef struct {
-    std::string buffer;
-    Handler *handler;
-} ClientContext;
-
 typedef void(*ContextDestructorCB)(void *ctx);
-
-class ClientContext {
-private:
-    std::string buffer;
-    Handler *handler = nullptr;
-    void *context = nullptr;
-
-    ContextDestructorCB destructor = nullptr;
-public:
-    ~ClientContext();
-
-    void setContext(void *ctx, ContextDestructorCB cb);
-    void *getContext() { return context; }
-
-    void setHandler(Handler *handler) { this->handler = handler; }
-    Handler *getHandler() { return handler; }
-
-    std::string &getBuffer() { return buffer; }
-};
 
 class GeminiRequest {
 private:
@@ -115,6 +91,25 @@ public:
     virtual void handle(SSLClient *client, const GeminiRequest &request) = 0;
 };
 
+class ClientContext {
+private:
+    std::string buffer;
+    Handler *handler = nullptr;
+    void *context = nullptr;
+
+    ContextDestructorCB destructor = nullptr;
+public:
+    ~ClientContext();
+
+    void setContext(void *ctx, ContextDestructorCB cb);
+    void *getContext() { return context; }
+
+    void setHandler(Handler *handler) { this->handler = handler; }
+    Handler *getHandler() { return handler; }
+
+    std::string &getBuffer() { return buffer; }
+};
+
 /**
  * Directs requests to the proper handler
  */
@@ -135,6 +130,8 @@ private:
 
     void loadCapsule(YAML::Node &node, const std::string &file);
 public:
+    Manager(uv_loop_t *loop)
+        : cache(loop) {}
     /**
      * Load all handlers in the specified directory
      * 

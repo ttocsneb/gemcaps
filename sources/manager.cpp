@@ -191,12 +191,14 @@ void Manager::loadCapsule(YAML::Node &node, const string &file) {
         string type = conf->getType();
         if (type == CapsuleSettings::TYPE_FILE) {
             handler = make_shared<FileHandler>(
+                &cache,
                 dynamic_pointer_cast<FileSettings>(conf), 
                 host, 
                 port
             );
         } else if (type == CapsuleSettings::TYPE_GSGI) {
             handler = make_shared<GSGIHandler>(
+                &cache,
                 dynamic_pointer_cast<GSGISettings>(conf), 
                 host, 
                 port

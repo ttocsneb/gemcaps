@@ -15,11 +15,11 @@ typedef struct {
     unsigned int lifetime;
 } CacheData;
 
-unsigned int sizeofCache(CacheData *data);
-
 typedef void (*CacheReadyCB)(const CacheData &data, void *);
 
 void cache_info_timer_cb(uv_timer_t *handle);
+
+class Cache;
 
 class CacheInfo {
 private:

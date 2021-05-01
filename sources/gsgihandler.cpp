@@ -44,10 +44,10 @@ void GSGIHandler::create() {
     delete[] conf.env_vars;
 }
 
-CacheData GSGIHandler::handle(WOLFSSL *ssl, const GeminiRequest &request) {
+void GSGIHandler::handle(SSLClient *client, const GeminiRequest &request) {
     // Dynamically start the gsgi instance
     if (instance.pid == 0) {
         create();
     }
-    gsgi_process_request(&instance, ssl, request.getRequest().c_str());
+    // gsgi_process_request(&instance, ssl, request.getRequest().c_str());
 }

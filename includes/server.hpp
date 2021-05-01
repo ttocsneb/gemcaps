@@ -15,9 +15,7 @@
 
 class SSLClient;
 
-typedef void(*SSL_ready_cb)(SSLClient *client, void *ctx);
-
-void delete_handle(uv_handle_t *handle);
+typedef void(*SSL_ready_cb)(SSLClient *client);
 
 /**
  * SSLClient connects WOLFSSL to libuv
@@ -31,11 +29,10 @@ private:
     int buffer_len = 0;
 
     SSL_ready_cb rrcb = nullptr;
-    void *rrctx = nullptr;
     SSL_ready_cb wrcb = nullptr;
-    void *wrctx = nullptr;
     SSL_ready_cb ccb = nullptr;
-    void *cctx = nullptr;
+
+    void *context = nullptr;
 
     std::map<uv_write_t*, uv_buf_t*> write_requests;
 public:
@@ -49,6 +46,13 @@ public:
      */
     SSLClient(uv_tcp_t *client, WOLFSSL *ssl);
     ~SSLClient();
+
+    /**
+     * Get the loop that the client is using
+     * 
+     * @return loop
+     */
+    uv_loop_t *getLoop() const;
 
     /**
      * Check if the buffer has more data available
@@ -116,13 +120,27 @@ public:
     void close();
 
     /**
+     * set the context for the client
+     *
+     * @param context context to set
+     */
+    void setContext(void *context) { this->context = context; }
+
+    /**
+     * Get the context
+     * 
+     * @return context
+     */
+    void *getContext() const { return context; }
+
+    /**
      * Set the read ready callback
      * 
      * This is called when data is ready to read
      * 
      * @param cb callback
      */
-    void setReadReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { rrcb = cb; rrctx = ctx; }
+    void setReadReadyCallback(SSL_ready_cb cb) { rrcb = cb; }
     /**
      * Set the write ready callback
      * 
@@ -130,7 +148,7 @@ public:
      * 
      * @param cb callback
      */
-    void setWriteReadyCallback(SSL_ready_cb cb, void *ctx = nullptr) { wrcb = cb; wrctx = ctx; }
+    void setWriteReadyCallback(SSL_ready_cb cb) { wrcb = cb; }
     /**
      * Set the close callback
      * 
@@ -138,7 +156,7 @@ public:
      * 
      * @param cb callback
      */
-    void setCloseCallback(SSL_ready_cb cb, void *ctx = nullptr) { ccb = cb; cctx = ctx; }
+    void setCloseCallback(SSL_ready_cb cb) { ccb = cb; }
 
     /**
      * Send data to the client

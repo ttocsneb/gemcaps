@@ -17,14 +17,14 @@ private:
 
     void create();
 public:
-    GSGIHandler(std::shared_ptr<GSGISettings> settings, Glob host, int port)
+    GSGIHandler(Cache *cache, std::shared_ptr<GSGISettings> settings, Glob host, int port)
             : settings(settings),
-            Handler(host, port) {
+            Handler(cache, host, port) {
         memset(&instance, 0, sizeof(gsgi));
     }
     ~GSGIHandler();
 
-    CacheData handle(WOLFSSL *ssl, const GeminiRequest &request);
+    void handle(SSLClient *client, const GeminiRequest &request);
 };
 
 #endif

@@ -24,25 +24,25 @@ using std::cout;
 using std::cerr;
 using std::endl;
 
-Manager manager;
+Manager *manager = nullptr;
 set<shared_ptr<SSLServer>> servers;
 set<SSLClient*> clients;
 
-void onClientClose(SSLClient *client, void *ctx) {
+void onClientClose(SSLClient *client) {
     clients.erase(client);
-    ClientContext *context = static_cast<ClientContext *>(ctx);
+    ClientContext *context = static_cast<ClientContext *>(client->getContext());
     if (context) {
         delete context;
     }
     delete client;
 }
 
-void close(SSLClient *client, void *ctx) {
+void close(SSLClient *client) {
     clients.erase(client);
     delete client;
 }
 
-void receive(SSLClient *client, void *ctx) {
+void receive(SSLClient *client) {
     char header[1024];
     int read = client->read(header, sizeof(header));
     if (read < 0) {
@@ -53,34 +53,33 @@ void receive(SSLClient *client, void *ctx) {
         return;
     }
     string data(header, read);
-    ClientContext *context = static_cast<ClientContext *>(ctx);
+    ClientContext *context = static_cast<ClientContext *>(client->getContext());
     if (context) {
-        context->buffer += string(header, read);
+        context->getBuffer() += string(header, read);
         // Close the connection if the header is too big
-        if (context->buffer.length() > 1024) {
+        if (context->getBuffer().length() > 1024) {
             client->close();
             return;
         }
         // The client hasn't sent all of the data
-        if (context->buffer.find('\n') == string::npos) {
+        if (context->getBuffer().find('\n') == string::npos) {
             return;
         }
-        GeminiRequest request(context->buffer);
+        GeminiRequest request(context->getBuffer());
         if (request.isValid()) {
-            manager.handle(client, request);
+            manager->handle(client, request);
             return;
         }
     }
     client->close();
 }
 
-void accept(SSLClient *client, void *ctx) {
-    ClientContext *context = new ClientContext({
-        .buffer = ""
-    });
+void accept(SSLClient *client) {
+    ClientContext *context = new ClientContext();
     // TODO: make a timout timer
-    client->setReadReadyCallback(receive, context);
-    client->setCloseCallback(onClientClose, context);
+    client->setContext(context);
+    client->setReadReadyCallback(receive);
+    client->setCloseCallback(onClientClose);
     clients.insert(client);
 }
 
@@ -100,18 +99,20 @@ int main(int argc, char *argv[]) {
     } catch (std::exception &err) {
         return 1;
     }
+    uv_loop_t *loop = uv_default_loop();
+
+    manager = new Manager(loop);
 
     try {
-        manager.load(settings.getCapsules());
+        manager->load(settings.getCapsules());
     } catch (fs::filesystem_error &err) {
         cerr << "Could not load capsules: " << err.path1() << " does not exist." << endl;
         return 1;
     } 
 
     wolfSSL_Init();
-    uv_loop_t *loop = uv_default_loop();
 
-    for (auto conf : manager.getServers()) {
+    for (auto conf : manager->getServers()) {
         if (conf.cert.empty()) {
             conf.cert = settings.getCert();
         }
@@ -144,5 +145,6 @@ int main(int argc, char *argv[]) {
     servers.clear();
     uv_loop_close(uv_default_loop());
     wolfSSL_Cleanup();
+    delete manager;
     return ret;
 }
