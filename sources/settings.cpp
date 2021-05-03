@@ -57,9 +57,14 @@ void FileSettings::load(YAML::Node &settings) {
     HandlerSettings::load(settings);
     root = settings["root"].as<string>();
     if (settings["cacheTime"].IsDefined()) {
-        cacheTime = settings["cacheTime"].as<int>();
+        cacheTime = settings["cacheTime"].as<float>();
     } else {
         cacheTime = 0;
+    }
+    if (settings["readDirs"].IsDefined()) {
+        readDirs = settings["readDirs"].as<bool>();
+    } else {
+        readDirs = false;
     }
     vector<string> items;
     if (settings["allowedDirs"].IsDefined()) {

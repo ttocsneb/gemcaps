@@ -20,7 +20,6 @@ private:
     uv_fs_t req;
     const GeminiRequest request;
     std::string path;
-    std::string disk;
     std::shared_ptr<FileSettings> settings;
     State state;
     FileHandler *handler;
@@ -35,9 +34,6 @@ public:
 
     void setPath(const std::string &path) { this->path = path; }
     const std::string &getPath() const { return path; }
-
-    void setDisk(const std::string &disk) { this->disk = disk; }
-    const std::string &getDisk() const { return disk; }
 
     void setState(State state) { this->state = state; } 
     State getState() const { return state; }
@@ -81,6 +77,7 @@ public:
     void gotInvalidPath(SSLClient *client, FileContext *context);
     void gotAccess(SSLClient *client, FileContext *context, ssize_t result);
     void gotStat(SSLClient *client, FileContext *context, uv_stat_t *statbuf);
+    void onScandir(SSLClient *client, FileContext *context, std::map<std::string, uv_dirent_type_t> &dirs);
 };
 
 #endif

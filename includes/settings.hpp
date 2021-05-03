@@ -79,7 +79,7 @@ public:
 class FileSettings : public HandlerSettings {
 private:
     std::string root;
-    unsigned int cacheTime;
+    float cacheTime;
     std::vector<Glob> allowedDirs;
     bool readDirs;
 public:
@@ -98,7 +98,7 @@ public:
      * 
      * @return the time to cache files
      */
-    int getCacheTime() const { return cacheTime; }
+    int getCacheTime() const { return cacheTime * 1000; }
     /**
      * Get the allowed directories
      *

@@ -12,6 +12,7 @@ using std::cerr;
 using std::endl;
 using std::ostringstream;
 using std::string;
+using std::map;
 
 void fileContextDestructor(void *ctx) {
     FileContext *context = static_cast<FileContext *>(ctx);
@@ -86,6 +87,32 @@ void got_stat(uv_fs_t *req) {
     context->getHandler()->gotStat(client, context, &statbuf);
 }
 
+void on_scandir(uv_fs_t *req) {
+    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
+    if (client == nullptr) {
+        uv_fs_req_cleanup(req);
+        return;
+    }
+    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
+    FileContext *context = static_cast<FileContext *>(ctx->getContext());
+
+    uv_dirent_t entry;
+    if (uv_fs_get_result(req) < 0) {
+        uv_fs_req_cleanup(req);
+        ERROR("stat error: " << uv_strerror(uv_fs_get_result(req)));
+        context->getHandler()->internalError(client, context);
+        return;
+    }
+    // Convert the scandir object into a map
+    map<string, uv_dirent_type_t> dirs;
+    while (uv_fs_scandir_next(req, &entry) != UV_EOF) {
+        dirs[entry.name] = entry.type;
+    }
+
+    uv_fs_req_cleanup(req);
+    context->getHandler()->onScandir(client, context, dirs);
+}
+
 void FileHandler::internalError(SSLClient *client, FileContext *context) {
     CacheData error;
     error.lifetime = settings->getCacheTime();
@@ -140,7 +167,7 @@ void FileHandler::gotRealPath(SSLClient *client, FileContext *context, string re
         sendCache(client, context);
         return;
     }
-    context->setDisk(realPath);
+    context->setPath(realPath);
     // Check if the file has read permissions
     uv_fs_access(client->getLoop(), context->getReq(), realPath.c_str(), R_OK, got_access);
 }
@@ -150,7 +177,7 @@ void FileHandler::gotAccess(SSLClient *client, FileContext *context, ssize_t res
         // The file is readable!
 
         // Check if the file exists
-        string disk = context->getDisk();
+        string disk = context->getPath();
         DEBUG("disk: " << disk);
         uv_fs_stat(client->getLoop(), context->getReq(), disk.c_str(), got_stat);
         return;
@@ -181,36 +208,86 @@ void FileHandler::gotStat(SSLClient *client, FileContext *context, uv_stat_t *st
             sendCache(client, context);
             return;
         }
-        CacheData ret;
-        ret.lifetime = settings->getCacheTime();
-        ret.meta = "text/gemini";
-        ret.response = 20;
-        ret.body = "Directory:\n" + context->getDisk() + "\n";
-        getCache()->add(context->getRequest().getRequest(), ret);
+        uv_fs_scandir(client->getLoop(), context->getReq(), context->getPath().c_str(), 0, on_scandir);
+        return;
+    } 
+    // The file is a file
+    if (final_backslash != string::npos) {
+        // Make sure the path does not have a trailing backslash
+        CacheData redirect;
+        redirect.lifetime = settings->getCacheTime();
+        redirect.meta = path.substr(0, final_backslash);
+        redirect.response = RES_REDIRECT_PERM;
+        getCache()->add(context->getRequest().getRequest(), redirect);
         sendCache(client, context);
-        // TODO: read the directory
-        // TODO: find an index.xyz file
-    } else {
-        // The file is a file
-        if (final_backslash != string::npos) {
-            // Make sure the path does not have a trailing backslash
-            CacheData redirect;
-            redirect.lifetime = settings->getCacheTime();
-            redirect.meta = path.substr(0, final_backslash);
-            redirect.response = RES_REDIRECT_PERM;
-            getCache()->add(context->getRequest().getRequest(), redirect);
-            sendCache(client, context);
-            return;
-        }
-        // TODO: read the file and create the cache
-        CacheData ret;
-        ret.lifetime = settings->getCacheTime();
-        ret.meta = "text/gemini";
-        ret.response = 20;
-        ret.body = "File:\n" + context->getDisk() + "\n";
-        getCache()->add(context->getRequest().getRequest(), ret);
-        sendCache(client, context);
+        return;
     }
+    // TODO: read the file and create the cache
+    CacheData ret;
+    ret.lifetime = settings->getCacheTime();
+    ret.meta = "text/gemini";
+    ret.response = 20;
+    ret.body = "File:\n" + context->getPath() + "\n";
+    getCache()->add(context->getRequest().getRequest(), ret);
+    sendCache(client, context);
+}
+
+void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string, uv_dirent_type_t> &dirs) {
+    // find an index.xyz file
+    string index;
+    bool hasIndex = false;
+
+    for (auto pair : dirs) {
+        string name = pair.first;
+        if (name.rfind("index.", 0) == 0) {
+            hasIndex = true;
+            index = name;
+            break;
+        }
+    }
+
+    if (hasIndex) {
+        // TODO: read the file
+    }
+
+    if (!settings->getReadDirs()) {
+        // If the handler is not allowed to read directories, send an error message
+        CacheData error;
+        error.lifetime = settings->getCacheTime();
+        error.response = RES_NOT_FOUND;
+        error.meta = "You are not allowed to access this file";
+        getCache()->add(context->getRequest().getRequest(), error);
+        sendCache(client, context);
+        return;
+    }
+
+    // Read the directory
+
+    ostringstream oss;
+    fs::path p = context->getRequest().getPath();
+    oss << "# " << context->getRequest().getPath() << "\n\n";
+    if (p.parent_path() != p) {
+        oss << "=> " << p.parent_path().parent_path().string() << " 📁 ../\n";
+    }
+    for (auto pair : dirs) {
+        oss << "=> " << (p / pair.first).string();
+        if (pair.second == 2) {
+            oss << " 📁";
+        } else {
+            oss << " 📄";
+        }
+        oss << " ./" << pair.first << "\n";
+    }
+    oss << "\n";
+
+    CacheData dir;
+    dir.lifetime = settings->getCacheTime();
+    dir.meta = "text/gemini";
+    dir.response = 20;
+    dir.body = oss.str();
+    getCache()->add(context->getRequest().getRequest(), dir);
+    sendCache(client, context);
+
 }
 
 void FileHandler::gotInvalidPath(SSLClient *client, FileContext *context) {
