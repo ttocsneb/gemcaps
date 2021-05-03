@@ -87,7 +87,7 @@ public:
      * 
      * @return number of bytes written, or -1 on error
      */
-    int write(void *data, int size);
+    int write(const void *data, int size);
 
     /**
      * Check if the server needs to wait for data

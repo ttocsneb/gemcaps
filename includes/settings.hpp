@@ -79,6 +79,7 @@ public:
 class FileSettings : public HandlerSettings {
 private:
     std::string root;
+    unsigned int cache;
 public:
     virtual void load(YAML::Node &settings);
 
@@ -88,6 +89,14 @@ public:
      * @return the root folder of the files
      */
     const std::string &getRoot() const { return root; }
+    /**
+     * Get the cache time
+     * 
+     * the cache time is in seconds
+     * 
+     * @return the time to cache files
+     */
+    int getCache() const { return cache; }
 };
 
 /**

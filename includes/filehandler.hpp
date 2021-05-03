@@ -11,9 +11,11 @@ private:
     uv_fs_t req;
     const GeminiRequest request;
     std::string path;
+    std::shared_ptr<FileSettings> settings;
 public:
-    FileContext(const GeminiRequest &request)
-        : request(request) {}
+    FileContext(const GeminiRequest &request, std::shared_ptr<FileSettings> settings)
+        : request(request),
+          settings(settings) {}
     uv_fs_t *getReq() { return &req; }
     const GeminiRequest &getRequest() const { return request; }
 
@@ -27,6 +29,7 @@ public:
 class FileHandler : public Handler {
 private:
     std::shared_ptr<FileSettings> settings;
+protected:
 public:
     FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Glob host, int port)
         : settings(settings),

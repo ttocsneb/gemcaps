@@ -46,8 +46,11 @@ void HandlerSettings::load(YAML::Node &settings) {
 
 void FileSettings::load(YAML::Node &settings) {
     HandlerSettings::load(settings);
-    if (settings["root"].IsDefined()) {
-        root = settings["root"].as<string>();
+    root = settings["root"].as<string>();
+    if (settings["cache"].IsDefined()) {
+        cache = settings["cache"].as<int>();
+    } else {
+        cache = 0;
     }
 }
 

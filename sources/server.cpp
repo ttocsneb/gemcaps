@@ -113,7 +113,7 @@ int SSLClient::read(void *buffer, int size) {
     return wolfSSL_read(ssl, buffer, size);
 }
 
-int SSLClient::write(void *data, int size) {
+int SSLClient::write(const void *data, int size) {
     return wolfSSL_write(ssl, data, size);
 }
 
