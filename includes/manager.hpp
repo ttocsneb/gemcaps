@@ -18,6 +18,24 @@
 #include "settings.hpp"
 #include "server.hpp"
 
+#define RES_INPUT 10
+#define RES_SENSITIVE_INPUT 11
+#define RES_SUCCESS 20
+#define RES_REDIRECT_TEMP 30
+#define RES_REDIRECT_PERM 31
+#define RES_FAIL_TEMP 40
+#define RES_SERVER_UNAVAIL 41
+#define RES_ERROR_CGI 42
+#define RES_ERROR_PROXY 43
+#define RES_SLOW_DOWN 44
+#define RES_FAIL_PERM 50
+#define RES_NOT_FOUND 51
+#define RES_GONE 52
+#define RES_BAD_REQUEST 59
+#define RES_CERT_REQUIRED 60
+#define RES_CERT_NOT_AUTH 61
+#define RES_CERT_NOT_VALID 62
+
 typedef void(*ContextDestructorCB)(void *ctx);
 
 class GeminiRequest {

@@ -49,7 +49,7 @@ void receive(SSLClient *client) {
         if (client->wants_read()) {
             return;
         }
-        cerr << "wolfSSL error: " << client->get_error_string() << endl;
+        ERROR("WOLFSSL - " << client->get_error_string());
         return;
     }
     string data(header, read);
@@ -75,6 +75,7 @@ void receive(SSLClient *client) {
 }
 
 void accept(SSLClient *client) {
+    DEBUG("Got new client");
     ClientContext *context = new ClientContext();
     // TODO: make a timout timer
     client->setContext(context);
@@ -94,7 +95,7 @@ int main(int argc, char *argv[]) {
     try {
         settings.loadFile(config);
     } catch (YAML::BadFile &err) {
-        cerr << "Could not find config file: " << config << endl;
+        ERROR("Could not find config file: " << config);
         return 1;
     } catch (std::exception &err) {
         return 1;
@@ -106,7 +107,7 @@ int main(int argc, char *argv[]) {
     try {
         manager->load(settings.getCapsules());
     } catch (fs::filesystem_error &err) {
-        cerr << "Could not load capsules: " << err.path1() << " does not exist." << endl;
+        ERROR("Could not load capsules: " << err.path1() << " does not exist.");
         return 1;
     } 
 
@@ -129,12 +130,12 @@ int main(int argc, char *argv[]) {
         if (server->load(loop, conf.listen, conf.port, conf.cert, conf.key)) {
             server->setAcceptCallback(accept);
             servers.insert(server);
-            cout << "Listening on " << conf.listen << ":" << conf.port << endl;
+            INFO("Listening on " << conf.listen << ":" << conf.port);
         }
     }
 
     if (servers.empty()) {
-        cerr << "Warning: There are no capsules configured!" << endl;
+        WARN("Warning: There are no capsules configured!");
     }
 
     int ret = uv_run(uv_default_loop(), UV_RUN_DEFAULT);

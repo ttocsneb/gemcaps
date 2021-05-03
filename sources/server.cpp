@@ -159,6 +159,8 @@ int SSLClient::_send(const char *buf, size_t size) {
     uv_write(write_req, (uv_stream_t *)client, write_buf, 1, cb_uv_write);
     write_requests.insert_or_assign(write_req, write_buf);
 
+    ++queued_writes;
+
     return size;
 }
 
@@ -222,8 +224,14 @@ void SSLClient::_write(uv_write_t *req, int status) {
     delete buf;
     write_requests.erase(req);
     delete req;
-    if (wrcb) {
-        wrcb(this);
+    --queued_writes;
+    if (queued_writes < 0) {
+        queued_writes = 0;
+    }
+    if (queued_writes == 0) {
+        if (wrcb) {
+            wrcb(this);
+        }
     }
     write_requests.erase(req);
 }

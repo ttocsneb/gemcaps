@@ -1,6 +1,14 @@
 #include "settings.hpp"
 
+#include "main.hpp"
+
 #include <iostream>
+
+#include <filesystem>
+
+#include <uv.h>
+
+namespace fs = std::filesystem;
 
 using std::map;
 using std::vector;
@@ -10,6 +18,7 @@ using std::make_shared;
 
 using std::cerr;
 using std::endl;
+
 
 namespace YAML {
     template<>
@@ -34,7 +43,6 @@ void Settings::loadFile(const string &path) {
 
 
 void HandlerSettings::load(YAML::Node &settings) {
-    rules.clear();
     type = settings["type"].as<string>();
     if (settings["path"].IsDefined()) {
         path = settings["path"].as<string>();
@@ -45,12 +53,45 @@ void HandlerSettings::load(YAML::Node &settings) {
 }
 
 void FileSettings::load(YAML::Node &settings) {
+    allowedDirs.clear();
     HandlerSettings::load(settings);
     root = settings["root"].as<string>();
-    if (settings["cache"].IsDefined()) {
-        cache = settings["cache"].as<int>();
+    if (settings["cacheTime"].IsDefined()) {
+        cacheTime = settings["cacheTime"].as<int>();
     } else {
-        cache = 0;
+        cacheTime = 0;
+    }
+    vector<string> items;
+    if (settings["allowedDirs"].IsDefined()) {
+        vector<string> items = settings["allowedDirs"].as<vector<string>>();
+    } else {
+        items.push_back(root);
+    }
+
+    // Add the allowed directories
+    for (string item : items) {
+        fs::path p = item;
+        p = p.make_preferred();
+        uv_fs_t req;
+        int res = uv_fs_realpath(uv_default_loop(), &req, p.c_str(), nullptr);
+        if (res == UV_ENOSYS) {
+            ERROR("Unsupported operating system");
+            return;
+        }
+        if (req.ptr) {
+            item = (char*)req.ptr;
+        } else {
+            WARN("The path \"" << item << "\" does not exist");
+        }
+
+        if (item.find('/', item.length() - 1) != string::npos) {
+            item += '*';
+        } else {
+            item += "/*";
+        }
+        DEBUG("Allowed Dir: " << item);
+        allowedDirs.push_back(item);
+        uv_fs_req_cleanup(&req);
     }
 }
 

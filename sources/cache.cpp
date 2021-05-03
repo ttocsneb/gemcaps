@@ -1,5 +1,7 @@
 #include "cache.hpp"
 
+#include "main.hpp"
+
 #include <vector>
 
 #include <uv.h>
@@ -7,6 +9,7 @@
 using std::string;
 using std::vector;
 using std::make_shared;
+using std::shared_ptr;
 
 //////////////////// CacheInfo ////////////////////
 
@@ -23,24 +26,21 @@ CacheInfo::CacheInfo(uv_loop_t *loop, Cache *manager, string name)
           timer_active(false),
           ready(false),
           name(name) {
-    timer = make_shared<uv_timer_t>();
-    uv_handle_set_data((uv_handle_t *)timer.get(), this);
-    uv_timer_init(loop, timer.get());
+    uv_handle_set_data((uv_handle_t *)&timer, this);
+    uv_timer_init(loop, &timer);
 }
 
 CacheInfo::~CacheInfo() {
-    if (timer != nullptr) {
-        uv_timer_stop(timer.get());
-    }
+    uv_timer_stop(&timer);
 }
 
 void CacheInfo::setTimout(unsigned int time) {
-    uv_timer_start(timer.get(), cache_info_timer_cb, time, time);
+    uv_timer_start(&timer, cache_info_timer_cb, time, time);
     timer_active = true;
 }
 
 void CacheInfo::stopTimer() {
-    uv_timer_stop(timer.get());
+    uv_timer_stop(&timer);
     timer_active = false;
 }
 
@@ -48,7 +48,7 @@ unsigned int CacheInfo::getTime() const {
     if (!timer_active) {
         return -1;
     }
-    return uv_timer_get_due_in(timer.get());
+    return uv_timer_get_due_in(&timer);
 }
 
 void CacheInfo::setLoading() {
@@ -76,12 +76,12 @@ void Cache::_remove_old_cache() {
     if (cache.empty()) {
         return;
     }
-    string name = cache.begin()->second.getName();
-    unsigned int shortest =cache.begin()->second.getTime();
+    string name = cache.begin()->second->getName();
+    unsigned int shortest =cache.begin()->second->getTime();
     for (auto pair : cache) {
-        unsigned int t = pair.second.getTime();
+        unsigned int t = pair.second->getTime();
         if (t < shortest) {
-            name = pair.second.getName();
+            name = pair.second->getName();
             shortest = t;
         }
     }
@@ -92,34 +92,35 @@ void Cache::_onCacheTimer(CacheInfo *info) {
     invalidate(info->getName());
 }
 
-CacheInfo &Cache::_get(const string &name) {
+shared_ptr<CacheInfo> Cache::_get(const string &name) {
     if (!cache.count(name)) {
-        std::pair<string, CacheInfo> p(name, CacheInfo(loop, this, name));
+        std::pair<string, shared_ptr<CacheInfo>> p(name, make_shared<CacheInfo>(loop, this, name));
         cache.insert(p);
     }
     return cache.at(name);
 }
 
 void Cache::loading(const string &name) {
-    CacheInfo &c = _get(name);
-    c.setLoading();
-    c.stopTimer();
+    auto c = _get(name);
+    c->setLoading();
+    c->stopTimer();
 }
 
 void Cache::add(const string &name, CacheData data) {
+    DEBUG("Adding " << name);
     if (max_size > 0) {
         while (cache.size() >= max_size) {
             _remove_old_cache();
         }
     }
-    CacheInfo &c = _get(name);
-    c.setData(data);
+    auto c = _get(name);
+    c->setData(data);
     if (data.lifetime) {
-        c.setTimout(data.lifetime);
+        c->setTimout(data.lifetime);
     } else {
-        c.stopTimer();
+        c->stopTimer();
     }
-    c.setLoaded();
+    c->setLoaded();
 }
 
 void Cache::clear() {
@@ -127,37 +128,40 @@ void Cache::clear() {
 }
 
 void Cache::invalidate(const string &name) {
-    cache.erase(name);
+    DEBUG("invalidating " << name);
+    if (cache.count(name)) {
+        cache.erase(name);
+    }
 }
 
 bool Cache::getNotified(const string &name, CacheReadyCB callback, void *ctx) {
     if (!cache.count(name)) {
         return false;
     }
-    CacheInfo &c = cache.at(name);
-    if (c.isLoaded()) {
+    auto c = cache.at(name);
+    if (c->isLoaded()) {
         // If the data is already loaded, just call the callback immediately
-        callback(c.getData(), ctx);
+        callback(c->getData(), ctx);
         return true;
     }
-    c.addCallback(callback, ctx);
+    c->addCallback(callback, ctx);
     return true;
 }
 
 bool Cache::isLoading(const string &name) const {
     if (cache.count(name)) {
-        return cache.at(name).isLoading();
+        return cache.at(name)->isLoading();
     }
     return false;
 }
 
 bool Cache::isLoaded(const string &name) const {
     if (cache.count(name)) {
-        return cache.at(name).isLoaded();
+        return cache.at(name)->isLoaded();
     }
     return false;
 }
 
 const CacheData &Cache::get(const string &name) const {
-    return cache.at(name).getData();
+    return cache.at(name)->getData();
 }

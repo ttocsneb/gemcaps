@@ -23,7 +23,7 @@ class Cache;
 
 class CacheInfo {
 private:
-    std::shared_ptr<uv_timer_t> timer;
+    uv_timer_t timer;
     std::map<CacheReadyCB, void *> callbacks;
     bool loading;
     bool timer_active;
@@ -115,7 +115,7 @@ private:
 
     const unsigned int max_size;
 
-    std::map<std::string, CacheInfo> cache;
+    std::map<std::string, std::shared_ptr<CacheInfo>> cache;
 
     /**
      * Remove the cache closest to timing out
@@ -136,7 +136,7 @@ protected:
      * 
      * @return cache
      */
-    CacheInfo &_get(const std::string &name);
+    std::shared_ptr<CacheInfo> _get(const std::string &name);
 
     friend CacheInfo;
 public:

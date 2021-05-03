@@ -27,6 +27,7 @@ private:
     char *buffer = nullptr;
     int buffer_size = 0;
     int buffer_len = 0;
+    int queued_writes = 0;
 
     SSL_ready_cb rrcb = nullptr;
     SSL_ready_cb wrcb = nullptr;
