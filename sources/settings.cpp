@@ -97,7 +97,7 @@ void FileSettings::load(YAML::Node &settings) {
         uv_fs_t req;
         int res = uv_fs_realpath(uv_default_loop(), &req, p.string().c_str(), nullptr);
         if (res == UV_ENOSYS) {
-            ERROR("Unsupported operating system");
+            LOG_ERROR("Unsupported operating system");
             return;
         }
         if (req.ptr) {

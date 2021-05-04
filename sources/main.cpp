@@ -95,6 +95,7 @@ int main(int argc, char *argv[]) {
 		confpath = fs::current_path() / confpath;
 	}
 	config = confpath.string();
+    LOG_DEBUG("config: " << config);
 
     GemCapSettings settings;
     try {

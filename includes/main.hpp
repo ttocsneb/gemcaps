@@ -2,7 +2,7 @@
 #define __GEMCAPS_MAIN__
 
 #include <iostream>
-#define GEMCAPS_DEBUG
+// #define GEMCAPS_DEBUG
 
 #define LOG_INFO(x) std::cout << "INFO " << x << std::endl
 #define LOG_WARN(x) std::cout << "WARNING " << x << std::endl
@@ -14,7 +14,7 @@
 
 #else
 
-#define DEBUG(x)
+#define LOG_DEBUG(x)
 
 #endif
 
