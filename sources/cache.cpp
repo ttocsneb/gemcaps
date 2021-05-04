@@ -11,6 +11,7 @@ using std::vector;
 using std::make_shared;
 using std::shared_ptr;
 
+
 //////////////////// CacheInfo ////////////////////
 
 void cache_info_timer_cb(uv_timer_t *handle) {
@@ -109,12 +110,13 @@ void Cache::loading(const string &name) {
 void Cache::add(const string &name, CacheData data) {
     DEBUG("Adding " << name);
     if (max_size > 0) {
-        while (cache.size() >= max_size) {
+        while (size + data.body.length() > max_size) {
             _remove_old_cache();
         }
     }
     auto c = _get(name);
     c->setData(data);
+    size += c->getSize();
     if (data.lifetime) {
         c->setTimout(data.lifetime);
     } else {
@@ -130,6 +132,9 @@ void Cache::clear() {
 void Cache::invalidate(const string &name) {
     DEBUG("invalidating " << name);
     if (cache.count(name)) {
+        if (cache.at(name)->isLoaded()) {
+            size -= cache.at(name)->getSize();
+        }
         cache.erase(name);
     }
 }

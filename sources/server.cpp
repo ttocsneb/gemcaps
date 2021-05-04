@@ -279,7 +279,7 @@ bool SSLServer::load(uv_loop_t *loop, const string &host, int port, const string
         wolfSSL_CTX_free(context);
     }
 
-    context = wolfSSL_CTX_new(wolfSSLv23_server_method());
+    context = wolfSSL_CTX_new(wolfTLSv1_2_server_method());
     if (context == nullptr) {
         return false;
     }

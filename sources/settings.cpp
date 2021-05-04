@@ -57,7 +57,7 @@ void FileSettings::load(YAML::Node &settings) {
     HandlerSettings::load(settings);
     root = settings["root"].as<string>();
     if (settings["cacheTime"].IsDefined()) {
-        cacheTime = settings["cacheTime"].as<float>();
+        cacheTime = settings["cacheTime"].as<float>() * 1000;
     } else {
         cacheTime = 0;
     }
@@ -188,5 +188,10 @@ void GemCapSettings::load(YAML::Node &settings) {
         port = settings["port"].as<int>();
     } else {
         port = 1965;
+    }
+    if (settings["cacheSize"].IsDefined()) {
+        cacheSize = settings["cacheSize"].as<float>() * 1000;
+    } else {
+        cacheSize = 50000;
     }
 }

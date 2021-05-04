@@ -148,8 +148,8 @@ private:
 
     void loadCapsule(YAML::Node &node, const std::string &file);
 public:
-    Manager(uv_loop_t *loop)
-        : cache(loop) {}
+    Manager(uv_loop_t *loop, unsigned int max_cache = 0)
+        : cache(loop, max_cache) {}
     /**
      * Load all handlers in the specified directory
      * 

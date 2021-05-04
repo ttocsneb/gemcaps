@@ -79,7 +79,7 @@ public:
 class FileSettings : public HandlerSettings {
 private:
     std::string root;
-    float cacheTime;
+    unsigned int cacheTime;
     std::vector<Glob> allowedDirs;
     bool readDirs;
 public:
@@ -98,7 +98,7 @@ public:
      * 
      * @return the time to cache files
      */
-    int getCacheTime() const { return cacheTime * 1000; }
+    unsigned int getCacheTime() const { return cacheTime; }
     /**
      * Get the allowed directories
      *
@@ -229,6 +229,7 @@ private:
     std::string listen;
     int port;
     std::string capsules;
+    unsigned int cacheSize;
 public:
     virtual void load(YAML::Node &settings);
 
@@ -268,6 +269,13 @@ public:
      * @return port
      */
     int getPort() const { return port; }
+
+    /**
+     * Get the cache size for the server
+     * 
+     * @return cache size
+     */
+    unsigned int getCacheSize() const { return cacheSize; }
 };
 
 #endif

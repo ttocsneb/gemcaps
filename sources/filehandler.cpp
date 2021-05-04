@@ -99,7 +99,7 @@ void on_scandir(uv_fs_t *req) {
     uv_dirent_t entry;
     if (uv_fs_get_result(req) < 0) {
         uv_fs_req_cleanup(req);
-        ERROR("stat error: " << uv_strerror(uv_fs_get_result(req)));
+        ERROR("scandir error: " << uv_strerror(uv_fs_get_result(req)));
         context->getHandler()->internalError(client, context);
         return;
     }
@@ -111,6 +111,50 @@ void on_scandir(uv_fs_t *req) {
 
     uv_fs_req_cleanup(req);
     context->getHandler()->onScandir(client, context, dirs);
+}
+
+void on_open(uv_fs_t *req) {
+    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
+    if (client == nullptr) {
+        uv_fs_req_cleanup(req);
+        return;
+    }
+    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
+    FileContext *context = static_cast<FileContext *>(ctx->getContext());
+
+    int fd = uv_fs_get_result(req);
+    if (fd < 0) {
+        ERROR("open error: " << uv_strerror(uv_fs_get_result(req)));
+        context->getHandler()->internalError(client, context);
+        return;
+    }
+    context->getHandler()->onFileOpen(client, context, fd);
+}
+
+void on_read(uv_fs_t *req) {
+    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
+    if (client == nullptr) {
+        uv_fs_req_cleanup(req);
+        return;
+    }
+    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
+    FileContext *context = static_cast<FileContext *>(ctx->getContext());
+
+    int res = uv_fs_get_result(req);
+    if (res < 0) {
+        ERROR("read error: " << uv_strerror(uv_fs_get_result(req)));
+        context->getHandler()->internalError(client, context);
+        return;
+    }
+
+    context->getHandler()->onFileRead(client, context, res);
+}
+
+void on_close(uv_fs_t *req) {
+    if (uv_fs_get_result(req) < 0) {
+        ERROR("close error: " << uv_strerror(uv_fs_get_result(req)));
+        return;
+    }
 }
 
 void FileHandler::internalError(SSLClient *client, FileContext *context) {
@@ -222,14 +266,7 @@ void FileHandler::gotStat(SSLClient *client, FileContext *context, uv_stat_t *st
         sendCache(client, context);
         return;
     }
-    // TODO: read the file and create the cache
-    CacheData ret;
-    ret.lifetime = settings->getCacheTime();
-    ret.meta = "text/gemini";
-    ret.response = 20;
-    ret.body = "File:\n" + context->getPath() + "\n";
-    getCache()->add(context->getRequest().getRequest(), ret);
-    sendCache(client, context);
+    readFile(client, context);
 }
 
 void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string, uv_dirent_type_t> &dirs) {
@@ -247,7 +284,11 @@ void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string,
     }
 
     if (hasIndex) {
-        // TODO: read the file
+        fs::path p = context->getPath();
+        p /= index;
+        context->setPath(p);
+        readFile(client, context);
+        return;
     }
 
     if (!settings->getReadDirs()) {
@@ -287,7 +328,38 @@ void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string,
     dir.body = oss.str();
     getCache()->add(context->getRequest().getRequest(), dir);
     sendCache(client, context);
+}
 
+void FileHandler::readFile(SSLClient *client, FileContext *context) {
+    DEBUG("Opening file..");
+    uv_fs_open(client->getLoop(), context->getReq(), context->getPath().c_str(), 0, UV_FS_O_RDONLY, on_open);
+}
+
+void FileHandler::onFileOpen(SSLClient *client, FileContext *context, uv_file file) {
+    context->setFile(file);
+    uv_fs_read(client->getLoop(), context->getReq(), file, context->getBuf(), 1, context->getOffset(), on_read);
+}
+
+void FileHandler::onFileRead(SSLClient *client, FileContext *context, unsigned int read) {
+    DEBUG("read " << read << " bytes of data");
+    if (read > 0) {
+        context->getBody() += context->getBuf()->base;
+        context->setOffset(context->getOffset() + read);
+        uv_fs_read(client->getLoop(), context->getReq(), context->getFile(), context->getBuf(), 1, context->getOffset(), on_read);
+        return;
+    }
+
+    uv_fs_close(client->getLoop(), context->getReq(), context->getFile(), on_close);
+
+    // TODO: get mimetype
+
+    CacheData response;
+    response.lifetime = settings->getCacheTime();
+    response.body = context->getBody();
+    response.response = 20;
+    response.meta = "text/gemini";
+    getCache()->add(context->getRequest().getRequest(), response);
+    sendCache(client, context);
 }
 
 void FileHandler::gotInvalidPath(SSLClient *client, FileContext *context) {

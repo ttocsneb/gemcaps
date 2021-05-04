@@ -5,6 +5,7 @@
 #include <map>
 #include <set>
 #include <memory>
+#include <queue>
 
 #include <uv.h>
 
@@ -106,16 +107,27 @@ public:
      * Called when the timer has run out
      */
     void _timeout();
+
+    /**
+     * Get the size of the cache in bytes
+     * 
+     * @return size
+     */
+    unsigned int getSize() const { return data.body.length(); }
 };
 
 
 class Cache {
 private:
+
+
     uv_loop_t *loop;
 
     const unsigned int max_size;
 
     std::map<std::string, std::shared_ptr<CacheInfo>> cache;
+
+    unsigned int size;
 
     /**
      * Remove the cache closest to timing out

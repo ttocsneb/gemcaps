@@ -20,10 +20,18 @@ private:
     uv_fs_t req;
     const GeminiRequest request;
     std::string path;
+    std::string body;
     std::shared_ptr<FileSettings> settings;
     State state;
     FileHandler *handler;
     std::vector<std::string> files;
+    int file;
+    unsigned long offset;
+    char rdbuf[1024];
+    uv_buf_t buf = {
+        rdbuf,
+        sizeof(rdbuf)
+    };
 public:
     FileContext(FileHandler *handler, const GeminiRequest &request, std::shared_ptr<FileSettings> settings)
         : handler(handler),
@@ -41,6 +49,15 @@ public:
     FileHandler *getHandler() const { return handler; }
 
     std::vector<std::string> &getFiles() { return files; }
+
+    void setFile(uv_file file) { this->file = file; }
+    int getFile() const { return file; }
+
+    uv_buf_t *getBuf() { return &buf; }
+    std::string &getBody() { return body; }
+
+    void setOffset(unsigned long offset) { this->offset = offset; }
+    unsigned long getOffset() const { return offset; }
 };
 
 /**
@@ -53,31 +70,18 @@ public:
     FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Glob host, int port)
         : settings(settings),
           Handler(cache, host, port) {}
-    /**
-     * Handle the reading of a file
-     * 
-     * The process of reading a file is outlined as follows:
-     * 
-     * 1. Find the absolute pathname on disk.
-     * 2. If the file is cached, send the cached data to the client
-     * 3. Let the cache know that we are actively creating the cache
-     * 4. Perform realpath operation to remove symlinks.
-     * 5. If the handler does not have permissions to read that file, then return an error
-     * 6. If the file does not exist, return an error
-     * 7. Read the file to the client
-     * 
-     * Note: when data is sent to the client, the cache will be updated with the sent data
-     */
     void handle(SSLClient *client, const GeminiRequest &request);
 
     void internalError(SSLClient *client, FileContext *context);
-
     void sendCache(SSLClient *client, FileContext *context);
     void gotRealPath(SSLClient *client, FileContext *context, std::string realPath);
     void gotInvalidPath(SSLClient *client, FileContext *context);
     void gotAccess(SSLClient *client, FileContext *context, ssize_t result);
     void gotStat(SSLClient *client, FileContext *context, uv_stat_t *statbuf);
     void onScandir(SSLClient *client, FileContext *context, std::map<std::string, uv_dirent_type_t> &dirs);
+    void readFile(SSLClient *client, FileContext *context);
+    void onFileOpen(SSLClient *client, FileContext *context, uv_file file);
+    void onFileRead(SSLClient *client, FileContext *context, unsigned int read);
 };
 
 #endif

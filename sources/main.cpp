@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
     }
     uv_loop_t *loop = uv_default_loop();
 
-    manager = new Manager(loop);
+    manager = new Manager(loop, settings.getCacheSize());
 
     try {
         manager->load(settings.getCapsules());
