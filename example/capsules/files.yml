@@ -1,0 +1,5 @@
+handlers:
+- type: file
+  root: ../files
+  path: /
+  readDirs: true

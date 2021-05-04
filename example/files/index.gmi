@@ -1,0 +1,17 @@
+# Hello World!
+
+Here is a simple example of a GemCaps server.
+
+In this example capsule, I have created some files to showcase how the filehandler works.
+
+Below, you will find a link to a folder.
+
+=> test test folder
+
+In this folder, you will see a list of all the files in the folder! This is optional behaviour, and can be enabled with the following setting:
+
+```yaml
+handlers:
+- type: file
+  readDirs: true # This will enable reading of directories
+```handler.yml

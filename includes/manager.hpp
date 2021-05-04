@@ -146,7 +146,7 @@ private:
     std::set<ServerSettings> servers;
     Cache cache;
 
-    void loadCapsule(YAML::Node &node, const std::string &file);
+    void loadCapsule(const std::string &filename, const std::string &file);
 public:
     Manager(uv_loop_t *loop, unsigned int max_cache = 0)
         : cache(loop, max_cache) {}

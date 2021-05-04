@@ -28,15 +28,15 @@ private:
     int file;
     unsigned long offset;
     char rdbuf[1024];
-    uv_buf_t buf = {
-        rdbuf,
-        sizeof(rdbuf)
-    };
+	uv_buf_t buf;
 public:
     FileContext(FileHandler *handler, const GeminiRequest &request, std::shared_ptr<FileSettings> settings)
         : handler(handler),
           request(request),
-          settings(settings) {}
+          settings(settings) {
+		buf.base = rdbuf;
+		buf.len = sizeof(rdbuf);
+	}
     uv_fs_t *getReq() { return &req; }
     const GeminiRequest &getRequest() const { return request; }
 

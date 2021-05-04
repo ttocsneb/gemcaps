@@ -10,7 +10,6 @@ file(GLOB_RECURSE
 
 SET(CMAKE_CXX_STANDARD 17)
 
-add_subdirectory(${PROJECT_SOURCE_DIR}/lib/benstools)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/yaml-cpp)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/libuv)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/wolfssl)
@@ -27,16 +26,24 @@ target_include_directories(gemcaps PUBLIC
 )
 
 target_link_libraries(gemcaps PUBLIC
-    pthread
-    benstools
     yaml-cpp
     wolfssl
     uv
 )
 
+set_target_properties(uv PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
+set_target_properties(gemcaps PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
+
+
 
 include(CTest)
 
+if (WIN32)
+else()
 if(CMAKE_TESTING_ENABLED)
     list(FILTER sources EXCLUDE REGEX
         ".*main.cpp$"
@@ -59,8 +66,6 @@ if(CMAKE_TESTING_ENABLED)
         ${PROJECT_SOURCE_DIR}/lib/googletest/include
     )
     target_link_libraries(test_gemcaps PUBLIC
-        pthread
-        benstools
         yaml-cpp
         wolfssl
         uv
@@ -71,4 +76,5 @@ if(CMAKE_TESTING_ENABLED)
     add_test(NAME test_gemcaps
         COMMAND ${PROJECT_BINARY_DIR}/test_gemcaps
     )
+endif()
 endif()

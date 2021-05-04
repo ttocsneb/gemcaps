@@ -49,7 +49,7 @@ void receive(SSLClient *client) {
         if (client->wants_read()) {
             return;
         }
-        ERROR("WOLFSSL - " << client->get_error_string());
+        LOG_ERROR("WOLFSSL - " << client->get_error_string());
         return;
     }
     string data(header, read);
@@ -75,7 +75,7 @@ void receive(SSLClient *client) {
 }
 
 void accept(SSLClient *client) {
-    DEBUG("Got new client");
+    LOG_DEBUG("Got new client");
     ClientContext *context = new ClientContext();
     // TODO: make a timout timer
     client->setContext(context);
@@ -90,12 +90,17 @@ int main(int argc, char *argv[]) {
     if (argc > 1) {
         config = argv[1];
     }
+	fs::path confpath = config;
+	if (confpath.is_relative()) {
+		confpath = fs::current_path() / confpath;
+	}
+	config = confpath.string();
 
     GemCapSettings settings;
     try {
         settings.loadFile(config);
     } catch (YAML::BadFile &err) {
-        ERROR("Could not find config file: " << config);
+        LOG_ERROR("Could not find config file: " << config);
         return 1;
     } catch (std::exception &err) {
         return 1;
@@ -107,16 +112,16 @@ int main(int argc, char *argv[]) {
     try {
         manager->load(settings.getCapsules());
     } catch (fs::filesystem_error &err) {
-        ERROR("Could not load capsules: " << err.path1() << " does not exist.");
+        LOG_ERROR("Could not load capsules: " << err.path1() << " does not exist.");
         return 1;
-    } 
+    }
 
     wolfSSL_Init();
 
     for (auto conf : manager->getServers()) {
         if (conf.cert.empty()) {
-            conf.cert = settings.getCert();
-        }
+			conf.cert = settings.getCert();
+		}
         if (conf.key.empty()) {
             conf.key = settings.getKey();
         }
@@ -130,12 +135,12 @@ int main(int argc, char *argv[]) {
         if (server->load(loop, conf.listen, conf.port, conf.cert, conf.key)) {
             server->setAcceptCallback(accept);
             servers.insert(server);
-            INFO("Listening on " << conf.listen << ":" << conf.port);
+            LOG_INFO("Listening on " << conf.listen << ":" << conf.port);
         }
     }
 
     if (servers.empty()) {
-        WARN("Warning: There are no capsules configured!");
+        LOG_WARN("Warning: There are no capsules configured!");
     }
 
     int ret = uv_run(uv_default_loop(), UV_RUN_DEFAULT);

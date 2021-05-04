@@ -156,17 +156,16 @@ bool Manager::ServerSettings::operator<(const Manager::ServerSettings &rhs) cons
 
 void Manager::load(const string &directory) {
     for (const auto &entry : fs::directory_iterator(directory)) {
-        string ext = entry.path().extension();
+        string ext = entry.path().extension().string();
         if (ext == ".yml" || ext == ".yaml") {
-            YAML::Node node = YAML::LoadFile(entry.path().string());
-            loadCapsule(node, entry.path().filename());
+            loadCapsule(entry.path().string(), entry.path().filename().string());
         }
     }
 }
 
-void Manager::loadCapsule(YAML::Node &node, const string &file) {
+void Manager::loadCapsule(const string& filename, const string& name) {
     CapsuleSettings settings;
-    settings.load(node);
+    settings.loadFile(filename);
 
     const Glob &host = settings.getHost();
     int port = settings.getPort();
@@ -180,7 +179,7 @@ void Manager::loadCapsule(YAML::Node &node, const string &file) {
 
     if(!servers.insert(conf).second) {
         if (!conf.key.empty() || !conf.cert.empty()) {
-            cout << "Warning: '" << file << "' tried to use a custom certificate for a host that has already been defined. This certificate will not be used!" << endl;
+            cout << "Warning: '" << name << "' tried to use a custom certificate for a host that has already been defined. This certificate will not be used!" << endl;
         }
     }
 

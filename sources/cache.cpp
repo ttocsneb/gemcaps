@@ -107,8 +107,8 @@ void Cache::loading(const string &name) {
     c->stopTimer();
 }
 
-void Cache::add(const string &name, CacheData data) {
-    DEBUG("Adding " << name);
+void Cache::add(const string &name, CachedData data) {
+    LOG_DEBUG("Adding " << name);
     if (max_size > 0) {
         while (size + data.body.length() > max_size) {
             _remove_old_cache();
@@ -130,7 +130,7 @@ void Cache::clear() {
 }
 
 void Cache::invalidate(const string &name) {
-    DEBUG("invalidating " << name);
+    LOG_DEBUG("invalidating " << name);
     if (cache.count(name)) {
         if (cache.at(name)->isLoaded()) {
             size -= cache.at(name)->getSize();
@@ -167,6 +167,6 @@ bool Cache::isLoaded(const string &name) const {
     return false;
 }
 
-const CacheData &Cache::get(const string &name) const {
+const CachedData &Cache::get(const string &name) const {
     return cache.at(name)->getData();
 }

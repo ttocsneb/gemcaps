@@ -14,9 +14,9 @@ typedef struct {
     int response;
     std::string body;
     unsigned int lifetime;
-} CacheData;
+} CachedData;
 
-typedef void (*CacheReadyCB)(const CacheData &data, void *);
+typedef void (*CacheReadyCB)(const CachedData &data, void *);
 
 void cache_info_timer_cb(uv_timer_t *handle);
 
@@ -32,7 +32,7 @@ private:
 
     Cache *manager;
 
-    CacheData data;
+    CachedData data;
     std::string name;
 public:
     CacheInfo(uv_loop_t *loop, Cache *manager, std::string name);
@@ -88,13 +88,13 @@ public:
      * 
      * @return the cache data
      */
-    const CacheData &getData() const { return data; }
+    const CachedData &getData() const { return data; }
     /**
      * Set the data in the cache
      * 
      * @param data
      */
-    void setData(const CacheData &data) { this->data = data; }
+    void setData(const CachedData &data) { this->data = data; }
 
     /**
      * Get the name of the cache
@@ -113,7 +113,7 @@ public:
      * 
      * @return size
      */
-    unsigned int getSize() const { return data.body.length(); }
+    size_t getSize() const { return data.body.length(); }
 };
 
 
@@ -175,7 +175,7 @@ public:
      * @param name name of the cache
      * @param data data to add
      */
-    void add(const std::string &name, CacheData data);
+    void add(const std::string &name, CachedData data);
 
     /**
      * Clear all data in the cache
@@ -224,7 +224,7 @@ public:
      * 
      * @return the data in the cache
      */
-    const CacheData &get(const std::string &name) const;
+    const CachedData &get(const std::string &name) const;
 };
 
 #endif

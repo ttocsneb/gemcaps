@@ -5,6 +5,7 @@
 #include <vector>
 #include <map>
 #include <memory>
+#include <filesystem>
 
 #include <yaml-cpp/yaml.h>
 
@@ -14,7 +15,20 @@
  * The base class for all settings objects
  */
 class Settings {
+protected:
+	std::filesystem::path directory;
+
+	std::string to_absolute_path(const std::string& path);
 public:
+	/**
+	 * Set the directory that the configuration is in
+	 *
+	 * @note this is done automatically when loadFile() is called
+	 *
+	 * @param path path of the directory
+	 */
+	void setDirectory(std::filesystem::path path) { directory = path.make_preferred(); }
+
     /**
      * Load the settings from the yaml node
      * 

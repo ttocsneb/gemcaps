@@ -4,8 +4,6 @@
 
 #include <iostream>
 
-#include <filesystem>
-
 #include <uv.h>
 
 namespace fs = std::filesystem;
@@ -36,7 +34,20 @@ namespace YAML {
     };
 }
 
+string Settings::to_absolute_path(const string& path) {
+	fs::path p = fs::path(path).make_preferred();
+	if (p.is_relative()) {
+		LOG_DEBUG("path " << p << " is relative");
+		LOG_DEBUG("Adding path " << directory << " to " << p << ": " << (directory / p));
+		return (directory / p).string();
+	}
+	LOG_DEBUG("path " << p << " is not relative");
+	return p.string();
+}
+
 void Settings::loadFile(const string &path) {
+	fs::path p = path;
+	setDirectory(p.parent_path());
     YAML::Node settings = YAML::LoadFile(path);
     load(settings);
 }
@@ -55,7 +66,10 @@ void HandlerSettings::load(YAML::Node &settings) {
 void FileSettings::load(YAML::Node &settings) {
     allowedDirs.clear();
     HandlerSettings::load(settings);
-    root = settings["root"].as<string>();
+	root = settings["root"].as<string>();
+	LOG_DEBUG("root: " << root);
+	root = to_absolute_path(root);
+	LOG_DEBUG("root abspath: " << root);
     if (settings["cacheTime"].IsDefined()) {
         cacheTime = settings["cacheTime"].as<float>() * 1000;
     } else {
@@ -76,9 +90,12 @@ void FileSettings::load(YAML::Node &settings) {
     // Add the allowed directories
     for (string item : items) {
         fs::path p = item;
+		if (p.is_relative()) {
+			p = directory / p;
+		}
         p = p.make_preferred();
         uv_fs_t req;
-        int res = uv_fs_realpath(uv_default_loop(), &req, p.c_str(), nullptr);
+        int res = uv_fs_realpath(uv_default_loop(), &req, p.string().c_str(), nullptr);
         if (res == UV_ENOSYS) {
             ERROR("Unsupported operating system");
             return;
@@ -86,15 +103,14 @@ void FileSettings::load(YAML::Node &settings) {
         if (req.ptr) {
             item = (char*)req.ptr;
         } else {
-            WARN("The path \"" << item << "\" does not exist");
+            LOG_WARN("The path \"" << item << "\" does not exist");
         }
 
-        if (item.find('/', item.length() - 1) != string::npos) {
-            item += '*';
-        } else {
-            item += "/*";
+        if (item.find(p.preferred_separator, item.length() - 1) == string::npos) {
+			item += p.preferred_separator;
         }
-        DEBUG("Allowed Dir: " << item);
+		item += '*';
+        LOG_DEBUG("Allowed Dir: " << item);
         allowedDirs.push_back(item);
         uv_fs_req_cleanup(&req);
     }
@@ -120,6 +136,7 @@ void CapsuleSettings::_load_handler(YAML::Node &settings) {
         // TODO Error
         return;
     }
+	conf->setDirectory(directory);
     conf->load(settings);
     handlers.push_back(conf);
 }
@@ -144,11 +161,13 @@ void CapsuleSettings::load(YAML::Node &settings) {
     }
     if (settings["cert"].IsDefined()) {
         cert = settings["cert"].as<string>();
+		cert = to_absolute_path(cert);
     } else {
-        listen = "";
+        cert = "";
     }
     if (settings["key"].IsDefined()) {
         key = settings["key"].as<string>();
+		key = to_absolute_path(key);
     } else {
         key = "";
     }
@@ -164,20 +183,23 @@ void CapsuleSettings::load(YAML::Node &settings) {
 void GemCapSettings::load(YAML::Node &settings) {
     try {
         cert = settings["cert"].as<string>();
+		cert = to_absolute_path(cert);
     } catch (std::exception &err) {
         cerr << "Error: cert is a required option!" << endl;
         throw err;
     }
     try {
         key = settings["key"].as<string>();
+		key = to_absolute_path(key);
     } catch (std::exception &err) {
         cerr << "Error: key is a required option!" << endl;
         throw err;
     }
     if (settings["capsules"].IsDefined()) {
         capsules = settings["capsules"].as<string>();
+		capsules = to_absolute_path(capsules);
     } else {
-        capsules = ".";
+        capsules = directory.string();
     }
     if (settings["listen"].IsDefined()) {
         listen = settings["listen"].as<string>();
