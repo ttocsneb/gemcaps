@@ -1,6 +1,8 @@
 #include "filehandler.hpp"
 #include "main.hpp"
 
+#include "MimeTypes.h"
+
 #include <filesystem>
 #include <sstream>
 #include <iostream>
@@ -13,6 +15,8 @@ using std::endl;
 using std::ostringstream;
 using std::string;
 using std::map;
+
+MimeTypes mimetypes;
 
 void fileContextDestructor(void *ctx) {
     FileContext *context = static_cast<FileContext *>(ctx);
@@ -357,7 +361,7 @@ void FileHandler::onFileRead(SSLClient *client, FileContext *context, unsigned i
     response.lifetime = settings->getCacheTime();
     response.body = context->getBody();
     response.response = 20;
-    response.meta = "text/gemini";
+    response.meta = mimetypes.getType(context->getPath().c_str());
     getCache()->add(context->getRequest().getRequest(), response);
     sendCache(client, context);
 }
