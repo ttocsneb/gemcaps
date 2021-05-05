@@ -34,9 +34,7 @@ void sentData(SSLClient *client) {
     ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
     FileContext *context = static_cast<FileContext *>(ctx->getContext());
     // Once the data has been sent, close the connection
-    if (context->getState() == FileContext::READY) {
-        delete client;
-    }
+    delete client;
 }
 
 void got_realpath(uv_fs_t *req) {
@@ -171,8 +169,6 @@ void FileHandler::internalError(SSLClient *client, FileContext *context) {
 }
 
 void FileHandler::sendCache(SSLClient *client, FileContext *context) {
-    context->setState(FileContext::READY);
-    LOG_DEBUG("Sending Cache");
 
     // Send cached response
     const CachedData &data = getCache()->get(context->getRequest().getRequest());
@@ -183,6 +179,13 @@ void FileHandler::sendCache(SSLClient *client, FileContext *context) {
     }
     string content = oss.str();
     client->write(content.c_str(), content.length());
+
+    const GeminiRequest &request = context->getRequest();
+    int port = request.getPort();
+    if (port == 0) {
+        port = 1965;
+    }
+    LOG_INFO(request.getHost() << ":" << port << request.getPath() << " [" << data.response << "]");
     return;
 }
 
@@ -201,8 +204,8 @@ void FileHandler::gotRealPath(SSLClient *client, FileContext *context, string re
     }
     if (!valid) {
         // Make sure that the path ends with a / just in case the rules require a trailing backslash
-        if (realPath.find("/", realPath.length() - 1) == string::npos) {
-            gotRealPath(client, context, realPath + "/");
+        if (realPath.find(fs::path::preferred_separator, realPath.length() - 1) == string::npos) {
+            gotRealPath(client, context, realPath + fs::path::preferred_separator);
             return;
         }
 
@@ -319,6 +322,10 @@ void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string,
         oss << "=> " << (p / pair.first).string();
         if (pair.second == 2) {
             oss << " 📁";
+        } else if (mimetypes.getType(pair.first.c_str()) == string("text/gemini")) {
+            oss << " ♊";
+        } else if (mimetypes.getType(pair.first.c_str()) == string("text/markdown")) {
+            oss << " 🔽";
         } else {
             oss << " 📄";
         }
@@ -348,15 +355,14 @@ void FileHandler::onFileOpen(SSLClient *client, FileContext *context, uv_file fi
 void FileHandler::onFileRead(SSLClient *client, FileContext *context, unsigned int read) {
     LOG_DEBUG("read " << read << " bytes of data");
     if (read > 0) {
-        context->getBody() += context->getBuf()->base;
+        LOG_DEBUG("read " << read << " bytes");
+        context->getBody() += string(context->getBuf()->base, read);
         context->setOffset(context->getOffset() + read);
         uv_fs_read(client->getLoop(), context->getReq(), context->getFile(), context->getBuf(), 1, context->getOffset(), on_read);
         return;
     }
 
     uv_fs_close(client->getLoop(), context->getReq(), context->getFile(), on_close);
-
-    // TODO: get mimetype
 
     CachedData response;
     response.lifetime = settings->getCacheTime();

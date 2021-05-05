@@ -2,4 +2,4 @@ Hello!
 
 I am a test file
 
-=> /files/ go back.
+=> /test/ go back.

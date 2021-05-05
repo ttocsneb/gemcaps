@@ -3,3 +3,4 @@ handlers:
   root: ../files
   path: /
   readDirs: true
+  cacheTime: 500

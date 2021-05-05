@@ -10,19 +10,12 @@
 class FileHandler;
 
 class FileContext {
-public:
-    enum State {
-        REALPATH,
-        READFILE,
-        READY
-    };
 private:
     uv_fs_t req;
     const GeminiRequest request;
     std::string path;
     std::string body;
     std::shared_ptr<FileSettings> settings;
-    State state;
     FileHandler *handler;
     std::vector<std::string> files;
     int file;
@@ -33,7 +26,9 @@ public:
     FileContext(FileHandler *handler, const GeminiRequest &request, std::shared_ptr<FileSettings> settings)
         : handler(handler),
           request(request),
-          settings(settings) {
+          settings(settings),
+          offset(0),
+          file(0) {
 		buf.base = rdbuf;
 		buf.len = sizeof(rdbuf);
 	}
@@ -42,9 +37,6 @@ public:
 
     void setPath(const std::string &path) { this->path = path; }
     const std::string &getPath() const { return path; }
-
-    void setState(State state) { this->state = state; } 
-    State getState() const { return state; }
 
     FileHandler *getHandler() const { return handler; }
 
