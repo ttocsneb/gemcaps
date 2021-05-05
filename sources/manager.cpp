@@ -147,6 +147,21 @@ GeminiRequest::GeminiRequest(string request)
     }
 }
 
+bool Handler::shouldHandle(const string &host, int port, const string &path) {
+    if (!(this->port == port && this->host == host)) {
+        return false;
+    }
+    if (rules.empty()) {
+        return true;
+    }
+    for (const auto &rule : rules) {
+        if (rule.match(path)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 bool Manager::ServerSettings::operator<(const Manager::ServerSettings &rhs) const {
     if (port != rhs.port) {
         return port < rhs.port;
@@ -219,5 +234,7 @@ void Manager::handle(SSLClient *client, const GeminiRequest &request) {
             return;
         }
     }
+    string error = "41 There is no server available to process your request\r\n";
+    client->write(error.c_str(), error.length());
     return;
 }

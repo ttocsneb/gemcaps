@@ -82,6 +82,7 @@ void accept(SSLClient *client) {
     client->setReadReadyCallback(receive);
     client->setCloseCallback(onClientClose);
     clients.insert(client);
+    client->setTimeout(1000);
 }
 
 int main(int argc, char *argv[]) {

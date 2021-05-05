@@ -61,6 +61,9 @@ void HandlerSettings::load(YAML::Node &settings) {
     if (settings["rules"].IsDefined()) {
         rules = settings["rules"].as<vector<Glob>>();
     }
+    for (auto rule : rules) {
+        LOG_INFO("rule: " << rule.str());
+    }
 }
 
 void FileSettings::load(YAML::Node &settings) {

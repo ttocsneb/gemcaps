@@ -12,10 +12,8 @@
 
 #include <uv.h>
 
+#include "context.hpp"
 
-class SSLClient;
-
-typedef void(*SSL_ready_cb)(SSLClient *client);
 
 /**
  * SSLClient connects WOLFSSL to libuv
@@ -29,13 +27,12 @@ private:
     int buffer_len = 0;
     int queued_writes = 0;
 
-    SSL_ready_cb rrcb = nullptr;
-    SSL_ready_cb wrcb = nullptr;
-    SSL_ready_cb ccb = nullptr;
-
-    void *context = nullptr;
+    ClientContext *context = nullptr;
 
     std::map<uv_write_t*, uv_buf_t*> write_requests;
+
+    uv_timer_t timeout;
+    unsigned int timeout_time;
 public:
     /**
      * Create the SSL client
@@ -70,6 +67,25 @@ public:
      * Stop listening for data
      */
     void stop_listening();
+
+    /**
+     * Set the time for the timeout
+     * 
+     * When the timer runs out, the connection will be closed. whenever data
+     * is sent to the client or received from the client, the timer resets.
+     * 
+     * if the time is 0, then the timeout is disabled
+     * 
+     * @param time timeout time (ms)
+     */
+    void setTimeout(unsigned int time);
+    /**
+     * Reset the timer on the timeout
+     * 
+     * This is effectively like calling setTimeout() with whichever value
+     * it was last called with.
+     */
+    void resetTimeout();
 
     /**
      * Read data from the client
@@ -117,47 +133,30 @@ public:
 
     /**
      * Close the connection
+     * 
+     * This will close the connection after any queued writes have been sent.
      */
     void close();
+    /**
+     * Crash the connection
+     * 
+     * reset and close the connection
+     */
+    void crash();
 
     /**
      * set the context for the client
      *
      * @param context context to set
      */
-    void setContext(void *context) { this->context = context; }
+    void setContext(ClientContext *context) { this->context = context; }
 
     /**
      * Get the context
      * 
      * @return context
      */
-    void *getContext() const { return context; }
-
-    /**
-     * Set the read ready callback
-     * 
-     * This is called when data is ready to read
-     * 
-     * @param cb callback
-     */
-    void setReadReadyCallback(SSL_ready_cb cb) { rrcb = cb; }
-    /**
-     * Set the write ready callback
-     * 
-     * This is called when data has been written
-     * 
-     * @param cb callback
-     */
-    void setWriteReadyCallback(SSL_ready_cb cb) { wrcb = cb; }
-    /**
-     * Set the close callback
-     * 
-     * This is called when an error occured while reading
-     * 
-     * @param cb callback
-     */
-    void setCloseCallback(SSL_ready_cb cb) { ccb = cb; }
+    ClientContext *getContext() const { return context; }
 
     /**
      * Send data to the client
@@ -179,32 +178,27 @@ public:
     int _recv(char *buf, size_t size);
 
     /**
-     * Get the ssl connection
-     * 
-     * @return the ssl connection
-     */
-    WOLFSSL *getSSL() { return ssl; }
-
-    /**
      * Put data in the input buffer
      * 
      * @param read size of the data
      * @param buf data to receive
      */
-    void _receive(ssize_t read, const uv_buf_t *buf);
+    void _on_receive(ssize_t read, const uv_buf_t *buf);
     /**
      * Notify that data has been written to the stream
      * 
      * @param req write request
      * @param status 0 in case of success, < 0 otherwise
      */
-    void _write(uv_write_t *req, int status);
+    void _on_write(uv_write_t *req, int status);
 
     /**
      * Called after the client has been closed
      */
-    void _close();
+    void _on_close();
 };
+
+typedef void(*SSL_ready_cb)(SSLClient *client);
 
 /**
  * A WolfSSL server wrapper

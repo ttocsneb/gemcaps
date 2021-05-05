@@ -70,15 +70,26 @@ int cb_IOSend(WOLFSSL *ssl, char *buf, int size, void *ctx) {
     return client->_send(buf, size);
 }
 
+void on_timeout(uv_timer_t *timeout) {
+    SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data((uv_handle_t *)timeout));
+    if (client) {
+        client->close();
+    }
+}
+
 SSLClient::SSLClient(uv_tcp_t *client, WOLFSSL *ssl)
         : client(client),
-          ssl(ssl) {
+          ssl(ssl),
+          timeout_time(0) {
     wolfSSL_SetIOReadCtx(ssl, this);
     wolfSSL_SetIOWriteCtx(ssl, this);
     uv_handle_set_data((uv_handle_t *)client, this);
+    uv_timer_init(getLoop(), &timeout);
+    uv_handle_set_data((uv_handle_t *)&timeout, this);
 }
 
 SSLClient::~SSLClient() {
+    uv_timer_stop(&timeout);
     wolfSSL_free(ssl);
     if (client) {
         uv_unref((uv_handle_t *)client);
@@ -109,6 +120,23 @@ void SSLClient::stop_listening() {
     uv_read_stop((uv_stream_t *)client);
 }
 
+void SSLClient::setTimeout(unsigned int time) {
+    timeout_time = time;
+    uv_timer_stop(&timeout);
+    if (time == 0) {
+        return;
+    }
+    uv_timer_start(&timeout, on_timeout, time, 0);
+}
+
+void SSLClient::resetTimeout() {
+    if (timeout_time == 0) {
+        return;
+    }
+    uv_timer_stop(&timeout);
+    uv_timer_start(&timeout, on_timeout, timeout_time, 0);
+}
+
 int SSLClient::read(void *buffer, int size) {
     return wolfSSL_read(ssl, buffer, size);
 }
@@ -118,6 +146,7 @@ int SSLClient::write(const void *data, int size) {
 }
 
 void SSLClient::close() {
+    uv_timer_stop(&timeout);
     if (client) {
         uv_unref((uv_handle_t *)client);
         uv_close((uv_handle_t *)client, cb_uv_close);
@@ -146,6 +175,7 @@ int SSLClient::_send(const char *buf, size_t size) {
     if (!is_open()) {
         return WOLFSSL_CBIO_ERR_CONN_CLOSE;
     }
+    resetTimeout();
     char *msg = new char[size];
     memcpy(msg, buf, size);
 
@@ -198,6 +228,7 @@ void SSLClient::_receive(ssize_t read, const uv_buf_t *buf) {
         close();
         return;
     }
+    resetTimeout();
     if (read > 0) {
         if (read + buffer_len > buffer_size) {
             buffer_size = read + buffer_len;

@@ -130,7 +130,7 @@ void Cache::clear() {
 }
 
 void Cache::invalidate(const string &name) {
-    LOG_DEBUG("invalidating " << name);
+    LOG_INFO("invalidating cache \"" << name << "\"");
     if (cache.count(name)) {
         if (cache.at(name)->isLoaded()) {
             size -= cache.at(name)->getSize();

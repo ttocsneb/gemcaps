@@ -17,6 +17,7 @@
 #include "glob.hpp"
 #include "settings.hpp"
 #include "server.hpp"
+#include "context.hpp"
 
 #define RES_INPUT 10
 #define RES_SENSITIVE_INPUT 11
@@ -38,27 +39,6 @@
 
 typedef void(*ContextDestructorCB)(void *ctx);
 
-class GeminiRequest {
-private:
-    std::string schema;
-    std::string host;
-    int port;
-    std::string path;
-    std::string query;
-    std::string request;
-    bool valid;
-public:
-    GeminiRequest(std::string request);
-
-    bool isValid() const { return valid; }
-    const std::string &getSchema() const {return schema; }
-    const std::string &getHost() const { return host; }
-    int getPort() const { return port; }
-    const std::string &getPath() const { return path; }
-    const std::string &getQuery() const { return query; }
-    const std::string &getRequest() const { return request; }
-};
-
 /**
  * The base class for all handlers
  */
@@ -67,6 +47,7 @@ private:
    Glob host;
    int port;
    Cache *cache;
+   std::vector<Glob> rules;
 protected:
     /**
      * Get the cache
@@ -81,11 +62,13 @@ public:
      * @param cache cache to use
      * @param host host to match against
      * @param port port to match against
+     * @param rules rules to match against
      */
-    Handler(Cache *cache, Glob host, int port)
+    Handler(Cache *cache, Glob host, int port, std::vector<Glob> rules)
         : cache(cache),
           host(host),
-          port(port) {}
+          port(port),
+          rules(rules) {}
 
     /**
      * Check whether the handler should handle this request
@@ -96,9 +79,7 @@ public:
      * 
      * @return whether the request should handle
      */
-    virtual bool shouldHandle(const std::string &host, int port, const std::string &path) { 
-        return this->port == port && this->host == host;
-    }
+    virtual bool shouldHandle(const std::string &host, int port, const std::string &path);
 
     /**
      * Handle the requset
@@ -107,25 +88,6 @@ public:
      * @param request gemini request
      */
     virtual void handle(SSLClient *client, const GeminiRequest &request) = 0;
-};
-
-class ClientContext {
-private:
-    std::string buffer;
-    Handler *handler = nullptr;
-    void *context = nullptr;
-
-    ContextDestructorCB destructor = nullptr;
-public:
-    ~ClientContext();
-
-    void setContext(void *ctx, ContextDestructorCB cb);
-    void *getContext() { return context; }
-
-    void setHandler(Handler *handler) { this->handler = handler; }
-    Handler *getHandler() { return handler; }
-
-    std::string &getBuffer() { return buffer; }
 };
 
 /**
