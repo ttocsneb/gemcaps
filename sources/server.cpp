@@ -26,7 +26,7 @@ void cb_uv_read(uv_stream_t *stream, ssize_t read, const uv_buf_t *buf) {
     // Data is ready to be read from the stream
     SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data((uv_handle_t *)stream));
     if (client) {
-        client->_receive(read, buf);
+        client->_on_receive(read, buf);
     }
     // I think we are supposed to free the buffer ourselves, but bugs may arise from here
     delete[] buf->base;
@@ -36,7 +36,7 @@ void cb_uv_write(uv_write_t *req, int status) {
     SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data((uv_handle_t *)req->handle));
     // Data is ready to be written to the stream
     if (client) {
-        client->_write(req, status);
+        client->_on_write(req, status);
     }
 
 }
@@ -50,7 +50,7 @@ void cb_uv_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
 void cb_uv_close(uv_handle_t *handle) {
     SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data(handle));
     if (client) {
-        client->_close();
+        client->_on_close();
     }
 }
 
@@ -77,8 +77,9 @@ void on_timeout(uv_timer_t *timeout) {
     }
 }
 
-SSLClient::SSLClient(uv_tcp_t *client, WOLFSSL *ssl)
-        : client(client),
+SSLClient::SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl)
+        : server(server),
+          client(client),
           ssl(ssl),
           timeout_time(0) {
     wolfSSL_SetIOReadCtx(ssl, this);
@@ -105,6 +106,9 @@ SSLClient::~SSLClient() {
         delete[] pair.second->base;
         delete pair.second;
         delete pair.first;
+    }
+    if (context) {
+        context->close();
     }
 }
 
@@ -146,11 +150,28 @@ int SSLClient::write(const void *data, int size) {
 }
 
 void SSLClient::close() {
+    if (queued_writes > 0) {
+        queued_close = true;
+        return;
+    }
     uv_timer_stop(&timeout);
     if (client) {
-        uv_unref((uv_handle_t *)client);
         uv_close((uv_handle_t *)client, cb_uv_close);
     }
+}
+
+void SSLClient::crash() {
+    uv_timer_stop(&timeout);
+    if (client) {
+        uv_tcp_close_reset(client, cb_uv_close);
+    }
+}
+
+void SSLClient::setContext(ClientContext *context) {
+    if (this->context && this->context != context) {
+        this->context->close();
+    }
+    this->context = context;
 }
 
 bool SSLClient::wants_read() const {
@@ -215,15 +236,18 @@ int SSLClient::_recv(char *buf, size_t size) {
     return len;
 }
 
-void SSLClient::_close() {
+void SSLClient::_on_close() {
     delete client;
     client = nullptr;
-    if (ccb) {
-        ccb(this);
+    if (context) {
+        context->onClose();
+        context->close();
+        context = nullptr;
     }
+    server->_notify_close(this);
 }
 
-void SSLClient::_receive(ssize_t read, const uv_buf_t *buf) {
+void SSLClient::_on_receive(ssize_t read, const uv_buf_t *buf) {
     if (read < 0) {
         close();
         return;
@@ -242,14 +266,14 @@ void SSLClient::_receive(ssize_t read, const uv_buf_t *buf) {
         memcpy(buffer + buffer_len, buf->base, read);
         buffer_len += read;
     }
-    if (rrcb) {
+    if (context) {
         do {
-            rrcb(this);
+            context->onRead();
         } while (hasData() && !wolfSSL_want_read(ssl));
     }
 }
 
-void SSLClient::_write(uv_write_t *req, int status) {
+void SSLClient::_on_write(uv_write_t *req, int status) {
     uv_buf_t *buf = write_requests.at(req);
     delete[] buf->base;
     delete buf;
@@ -260,8 +284,11 @@ void SSLClient::_write(uv_write_t *req, int status) {
         queued_writes = 0;
     }
     if (queued_writes == 0) {
-        if (wrcb) {
-            wrcb(this);
+        if (context) {
+            context->onWrite();
+        }
+        if (queued_close) {
+            close();
         }
     }
     write_requests.erase(req);
@@ -285,12 +312,9 @@ void new_connection(uv_stream_t *stream, int status) {
     server->_accept(conn);
 }
 
-void default_close_handler(SSLClient *client) {
-    delete client;
-}
-
-void SSLServer::_notify_death(SSLClient *client) {
+void SSLServer::_notify_close(SSLClient *client) {
     clients.erase(client);
+    delete client;
 }
 
 SSLServer::~SSLServer() {
@@ -360,8 +384,8 @@ void SSLServer::_accept(uv_tcp_t *conn) {
     if (ssl == nullptr) {
         return;
     }
-    SSLClient *client = new SSLClient(conn, ssl);
-    client->setCloseCallback(default_close_handler);
+    SSLClient *client = new SSLClient(this, conn, ssl);
+    clients.insert(client);
     accept_cb(client);
     client->listen();
 }

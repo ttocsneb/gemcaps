@@ -14,6 +14,9 @@
 
 #include "context.hpp"
 
+class SSLServer;
+class ClientContext;
+
 
 /**
  * SSLClient connects WOLFSSL to libuv
@@ -26,6 +29,9 @@ private:
     int buffer_size = 0;
     int buffer_len = 0;
     int queued_writes = 0;
+    bool queued_close = false;
+
+    SSLServer *server;
 
     ClientContext *context = nullptr;
 
@@ -42,7 +48,7 @@ public:
      * @param client tcp client
      * @param ssl ssl client
      */
-    SSLClient(uv_tcp_t *client, WOLFSSL *ssl);
+    SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl);
     ~SSLClient();
 
     /**
@@ -149,7 +155,7 @@ public:
      *
      * @param context context to set
      */
-    void setContext(ClientContext *context) { this->context = context; }
+    void setContext(ClientContext *context);
 
     /**
      * Get the context
@@ -216,7 +222,7 @@ protected:
     /**
      * Notify that a client is being destroyed
      */
-    void _notify_death(SSLClient *client);
+    void _notify_close(SSLClient *client);
 
     friend SSLClient;
 public:

@@ -26,63 +26,9 @@ using std::endl;
 
 Manager *manager = nullptr;
 set<shared_ptr<SSLServer>> servers;
-set<SSLClient*> clients;
-
-void onClientClose(SSLClient *client) {
-    clients.erase(client);
-    ClientContext *context = static_cast<ClientContext *>(client->getContext());
-    if (context) {
-        delete context;
-    }
-    delete client;
-}
-
-void close(SSLClient *client) {
-    clients.erase(client);
-    delete client;
-}
-
-void receive(SSLClient *client) {
-    char header[1024];
-    int read = client->read(header, sizeof(header));
-    if (read < 0) {
-        if (client->wants_read()) {
-            return;
-        }
-        LOG_ERROR("WOLFSSL - " << client->get_error_string());
-        return;
-    }
-    string data(header, read);
-    ClientContext *context = static_cast<ClientContext *>(client->getContext());
-    if (context) {
-        context->getBuffer() += string(header, read);
-        // Close the connection if the header is too big
-        if (context->getBuffer().length() > 1024) {
-            client->close();
-            return;
-        }
-        // The client hasn't sent all of the data
-        if (context->getBuffer().find('\n') == string::npos) {
-            return;
-        }
-        GeminiRequest request(context->getBuffer());
-        if (request.isValid()) {
-            manager->handle(client, request);
-            return;
-        }
-    }
-    client->close();
-}
 
 void accept(SSLClient *client) {
-    LOG_DEBUG("Got new client");
-    ClientContext *context = new ClientContext();
-    // TODO: make a timout timer
-    client->setContext(context);
-    client->setReadReadyCallback(receive);
-    client->setCloseCallback(onClientClose);
-    clients.insert(client);
-    client->setTimeout(1000);
+    manager->handle(client);
 }
 
 int main(int argc, char *argv[]) {
@@ -147,9 +93,6 @@ int main(int argc, char *argv[]) {
 
     int ret = uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 
-    for (SSLClient *client : clients) {
-        delete client;
-    }
     servers.clear();
     uv_loop_close(uv_default_loop());
     wolfSSL_Cleanup();

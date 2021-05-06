@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <sstream>
 #include <iostream>
+#include <functional>
 
 namespace fs = std::filesystem;
 
@@ -15,94 +16,150 @@ using std::endl;
 using std::ostringstream;
 using std::string;
 using std::map;
+using std::hash;
 
 MimeTypes mimetypes;
 
-void fileContextDestructor(void *ctx) {
-    FileContext *context = static_cast<FileContext *>(ctx);
-    delete context;
-}
+////////// FileContext handlers //////////
 
-void cacheReady(const CachedData &data, void *arg) {
-    SSLClient *client = static_cast<SSLClient *>(arg);
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
-    context->getHandler()->sendCache(client, context);
-}
+void got_realpath(uv_fs_t *req);
+void got_access(uv_fs_t *req);
+void got_stat(uv_fs_t *req);
+void on_scandir(uv_fs_t *req);
+void on_open(uv_fs_t *req);
+void on_read(uv_fs_t *req);
+void on_close(uv_fs_t *req);
 
-void sentData(SSLClient *client) {
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
-    // Once the data has been sent, close the connection
-    delete client;
+void onCacheReady(const CachedData &data, Cache *cache, void *arg) {
+    FileContext *context = static_cast<FileContext *>(arg);
+    if (cache->isLoaded(context->getCacheKey())) {
+        context->send(data);
+        return;
+    }
+    context->handle();
 }
 
 void got_realpath(uv_fs_t *req) {
-    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
-    if (client == nullptr) {
+    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
+    if (context == nullptr) {
         uv_fs_req_cleanup(req);
         return;
     }
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
     if (req->ptr != nullptr) {
         string realpath = string((char *)uv_fs_get_ptr(req));
+        // TODO: Real path
+        // Check if the handler has permissions to read the file
+        LOG_DEBUG("Real path: " << realPath);
+        bool valid = true;
+        if (!context->settings->getAllowedDirs().empty()) {
+            valid = false;
+            for (const auto &rule : context->settings->getAllowedDirs()) {
+                if (rule.match(realpath)) {
+                    valid = true;
+                    break;
+                }
+            }
+        }
+        if (!valid) {
+            // The handler is not allowed to read this file
+            CachedData error = context->createCache(RES_NOT_FOUND, "You are not allowed to access this file");
+            context->send(error);
+            context->getCache()->add(context->getCacheKey(), error);
+            return;
+        }
+        context->file = realpath;
+        // Check if the file has read permissions
         uv_fs_req_cleanup(req);
-        context->getHandler()->gotRealPath(client, context, realpath);
-    } else {
-        uv_fs_req_cleanup(req);
-        context->getHandler()->gotInvalidPath(client, context);
-    }
+        uv_fs_access(context->getClient()->getLoop(), req, realpath.c_str(), R_OK, got_access);
+        return;
+    } 
+    // Invalid path
+    CachedData data = context->createCache(RES_NOT_FOUND, "File does not exist");
+    context->send(data);
+    context->getCache()->add(context->getCacheKey(), data);
+    uv_fs_req_cleanup(req);
 }
 
 void got_access(uv_fs_t *req) {
-    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
-    if (client == nullptr) {
+    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
+    if (context == nullptr) {
         uv_fs_req_cleanup(req);
         return;
     }
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
-    ssize_t res = uv_fs_get_result(req);
+    ssize_t result = uv_fs_get_result(req);
+    if (result | R_OK) {
+        // Check if the file exists
+        uv_fs_req_cleanup(req);
+        uv_fs_stat(context->getClient()->getLoop(), req, context->file.c_str(), got_stat);
+        return;
+    } 
+    CachedData error = context->createCache(RES_NOT_FOUND, "You are not allowed to access this file");
+    context->send(error);
+    context->getCache()->add(context->getCacheKey(), error);
     uv_fs_req_cleanup(req);
-    context->getHandler()->gotAccess(client, context, res);
 }
 
 void got_stat(uv_fs_t *req) {
-    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
-    if (client == nullptr) {
+    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
+    if (context == nullptr) {
         uv_fs_req_cleanup(req);
         return;
     }
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
-
     uv_stat_t statbuf = *uv_fs_get_statbuf(req);
     if (uv_fs_get_result(req) < 0) {
         uv_fs_req_cleanup(req);
         LOG_ERROR("stat error: " << uv_strerror(uv_fs_get_result(req)));
-        context->getHandler()->internalError(client, context);
+        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
+        context->send(error);
+        context->getCache()->add(context->getCacheKey(), error);
         return;
     }
     LOG_DEBUG("file type: " << statbuf.st_mode);
-    uv_fs_req_cleanup(req);
-    context->getHandler()->gotStat(client, context, &statbuf);
-}
 
-void on_scandir(uv_fs_t *req) {
-    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
-    if (client == nullptr) {
+    const string &path = context->getRequest().getPath();
+    size_t final_backslash = path.find('/', path.length() - 1);
+    LOG_DEBUG("mode: " << statbuf->st_mode);
+    if (statbuf.st_mode & S_IFDIR) {
+        // The file is a directory
+        if (final_backslash == string::npos) {
+            // Make sure the path has a trailing backslash
+            CachedData redirect = context->createCache(RES_REDIRECT_PERM, path + "/");
+            context->send(redirect);
+            context->getCache()->add(context->getCacheKey(), redirect);
+            uv_fs_req_cleanup(req);
+            return;
+        }
+        uv_fs_req_cleanup(req);
+        uv_fs_scandir(context->getClient()->getLoop(), req, context->file.c_str(), 0, on_scandir);
+        return;
+    } 
+    // The file is a file
+    if (final_backslash != string::npos) {
+        // Make sure the path does not have a trailing backslash
+        CachedData redirect = context->createCache(RES_REDIRECT_PERM, path.substr(0, final_backslash));
+        context->send(redirect);
+        context->getCache()->add(context->getCacheKey(), redirect);
         uv_fs_req_cleanup(req);
         return;
     }
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
+    uv_fs_req_cleanup(req);
+    uv_fs_open(context->getClient()->getLoop(), req, context->file.c_str(), 0, UV_FS_O_RDONLY, on_open);
+}
+
+void on_scandir(uv_fs_t *req) {
+    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
+    if (context == nullptr) {
+        uv_fs_req_cleanup(req);
+        return;
+    }
 
     uv_dirent_t entry;
     if (uv_fs_get_result(req) < 0) {
         uv_fs_req_cleanup(req);
         LOG_ERROR("scandir error: " << uv_strerror(uv_fs_get_result(req)));
-        context->getHandler()->internalError(client, context);
+        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
+        context->send(error);
+        context->getCache()->add(context->getCacheKey(), error);
         return;
     }
     // Convert the scandir object into a map
@@ -110,173 +167,8 @@ void on_scandir(uv_fs_t *req) {
     while (uv_fs_scandir_next(req, &entry) != UV_EOF) {
         dirs[entry.name] = entry.type;
     }
-
     uv_fs_req_cleanup(req);
-    context->getHandler()->onScandir(client, context, dirs);
-}
 
-void on_open(uv_fs_t *req) {
-    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
-    if (client == nullptr) {
-        uv_fs_req_cleanup(req);
-        return;
-    }
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
-
-    int fd = uv_fs_get_result(req);
-    if (fd < 0) {
-        LOG_ERROR("open error: " << uv_strerror(uv_fs_get_result(req)));
-        context->getHandler()->internalError(client, context);
-        return;
-    }
-    context->getHandler()->onFileOpen(client, context, fd);
-}
-
-void on_read(uv_fs_t *req) {
-    SSLClient *client = static_cast<SSLClient *>(uv_req_get_data((uv_req_t *)req));
-    if (client == nullptr) {
-        uv_fs_req_cleanup(req);
-        return;
-    }
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = static_cast<FileContext *>(ctx->getContext());
-
-    int res = uv_fs_get_result(req);
-    if (res < 0) {
-        LOG_ERROR("read error: " << uv_strerror(uv_fs_get_result(req)));
-        context->getHandler()->internalError(client, context);
-        return;
-    }
-
-    context->getHandler()->onFileRead(client, context, res);
-}
-
-void on_close(uv_fs_t *req) {
-    if (uv_fs_get_result(req) < 0) {
-        LOG_ERROR("close error: " << uv_strerror(uv_fs_get_result(req)));
-        return;
-    }
-}
-
-void FileHandler::internalError(SSLClient *client, FileContext *context) {
-    CachedData error;
-    error.lifetime = settings->getCacheTime();
-    error.response = RES_ERROR_CGI;
-    error.meta = "An internal error occurred";
-    getCache()->add(context->getRequest().getRequest(), error);
-    sendCache(client, context);
-}
-
-void FileHandler::sendCache(SSLClient *client, FileContext *context) {
-
-    // Send cached response
-    const CachedData &data = getCache()->get(context->getRequest().getRequest());
-    ostringstream oss;
-    oss << data.response << " " << data.meta << "\r\n";
-    if (data.response >= 20 && data.response <= 29) {
-        oss << data.body;
-    }
-    string content = oss.str();
-    client->write(content.c_str(), content.length());
-
-    const GeminiRequest &request = context->getRequest();
-    int port = request.getPort();
-    if (port == 0) {
-        port = 1965;
-    }
-    LOG_INFO(request.getHost() << ":" << port << request.getPath() << " [" << data.response << "]");
-    return;
-}
-
-void FileHandler::gotRealPath(SSLClient *client, FileContext *context, string realPath) {
-    // Check if the handler has permissions to read the file
-    LOG_DEBUG("Real path: " << realPath);
-    bool valid = true;
-    if (!settings->getAllowedDirs().empty()) {
-        valid = false;
-        for (const auto &rule : settings->getAllowedDirs()) {
-            if (rule.match(realPath)) {
-                valid = true;
-                break;
-            }
-        }
-    }
-    if (!valid) {
-        // Make sure that the path ends with a / just in case the rules require a trailing backslash
-        if (realPath.find(fs::path::preferred_separator, realPath.length() - 1) == string::npos) {
-            gotRealPath(client, context, realPath + fs::path::preferred_separator);
-            return;
-        }
-
-        // The handler is not allowed to read this file
-        CachedData error;
-        error.lifetime = settings->getCacheTime();
-        error.response = RES_NOT_FOUND;
-        error.meta = "You are not allowed to access this file";
-        getCache()->add(context->getRequest().getRequest(), error);
-        sendCache(client, context);
-        return;
-    }
-    context->setPath(realPath);
-    // Check if the file has read permissions
-    uv_fs_access(client->getLoop(), context->getReq(), realPath.c_str(), R_OK, got_access);
-}
-
-void FileHandler::gotAccess(SSLClient *client, FileContext *context, ssize_t result) {
-    if (result | R_OK) {
-        // The file is readable!
-
-        // Check if the file exists
-        string disk = context->getPath();
-        LOG_DEBUG("disk: " << disk);
-        uv_fs_stat(client->getLoop(), context->getReq(), disk.c_str(), got_stat);
-        return;
-    } else {
-        CachedData error;
-        error.lifetime = settings->getCacheTime();
-        error.response = RES_NOT_FOUND;
-        error.meta = "You are not allowed to access this file";
-        getCache()->add(context->getRequest().getRequest(), error);
-        sendCache(client, context);
-        return;
-    }
-}
-
-void FileHandler::gotStat(SSLClient *client, FileContext *context, uv_stat_t *statbuf) {
-    const string &path = context->getRequest().getPath();
-    size_t final_backslash = path.find('/', path.length() - 1);
-    LOG_DEBUG("mode: " << statbuf->st_mode);
-    if (statbuf->st_mode & S_IFDIR) {
-        // The file is a directory
-        if (final_backslash == string::npos) {
-            // Make sure the path has a trailing backslash
-            CachedData redirect;
-            redirect.lifetime = settings->getCacheTime();
-            redirect.meta = path + "/";
-            redirect.response = RES_REDIRECT_PERM;
-            getCache()->add(context->getRequest().getRequest(), redirect);
-            sendCache(client, context);
-            return;
-        }
-        uv_fs_scandir(client->getLoop(), context->getReq(), context->getPath().c_str(), 0, on_scandir);
-        return;
-    } 
-    // The file is a file
-    if (final_backslash != string::npos) {
-        // Make sure the path does not have a trailing backslash
-        CachedData redirect;
-        redirect.lifetime = settings->getCacheTime();
-        redirect.meta = path.substr(0, final_backslash);
-        redirect.response = RES_REDIRECT_PERM;
-        getCache()->add(context->getRequest().getRequest(), redirect);
-        sendCache(client, context);
-        return;
-    }
-    readFile(client, context);
-}
-
-void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string, uv_dirent_type_t> &dirs) {
     // find an index.xyz file
     string index;
     bool hasIndex = false;
@@ -291,27 +183,22 @@ void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string,
     }
 
     if (hasIndex) {
-        fs::path p = context->getPath();
+        fs::path p = context->file;
         p /= index;
-		string path = p.string();
-        context->setPath(path);
-        readFile(client, context);
+        context->file = p.string();
+        uv_fs_open(context->getClient()->getLoop(), req, context->file.c_str(), 0, UV_FS_O_RDONLY, on_open);
         return;
     }
 
-    if (!settings->getReadDirs()) {
+    if (!context->settings->getReadDirs()) {
         // If the handler is not allowed to read directories, send an error message
-        CachedData error;
-        error.lifetime = settings->getCacheTime();
-        error.response = RES_NOT_FOUND;
-        error.meta = "You are not allowed to access this file";
-        getCache()->add(context->getRequest().getRequest(), error);
-        sendCache(client, context);
+        CachedData error = context->createCache(RES_NOT_FOUND, "You are not allowed to access this file");
+        context->send(error);
+        context->getCache()->add(context->getCacheKey(), error);
         return;
     }
 
     // Read the directory
-
     ostringstream oss;
     fs::path p = context->getRequest().getPath();
     oss << "# " << context->getRequest().getPath() << "\n\n";
@@ -320,12 +207,25 @@ void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string,
     }
     for (auto pair : dirs) {
         oss << "=> " << (p / pair.first).string();
+        string type = mimetypes.getType(pair.first.c_str());
         if (pair.second == 2) {
             oss << " 📁";
-        } else if (mimetypes.getType(pair.first.c_str()) == string("text/gemini")) {
+        } else if (type.find("gemini") != string::npos) {
             oss << " ♊";
-        } else if (mimetypes.getType(pair.first.c_str()) == string("text/markdown")) {
+        } else if (type.find("markdown") != string::npos) {
             oss << " 🔽";
+        } else if (type.find("audio") != string::npos) {
+            oss << " 🎶";
+        } else if (type.find("image") != string::npos) {
+            oss << " 🖼️";
+        } else if (type.find("video") != string::npos) {
+            oss << " 📺";
+        } else if (type.find("pdf") != string::npos) {
+            oss << " 📖";
+        } else if (type.find("zip") != string::npos || type.find("compressed") != string::npos) {
+            oss << " 📦";
+        } else if (type.find("calendar") != string::npos) {
+            oss << " 📅";
         } else {
             oss << " 📄";
         }
@@ -333,93 +233,175 @@ void FileHandler::onScandir(SSLClient *client, FileContext *context, map<string,
     }
     oss << "\n";
 
-    CachedData dir;
-    dir.lifetime = settings->getCacheTime();
-    dir.meta = "text/gemini";
-    dir.response = 20;
+    CachedData dir = context->createCache(RES_SUCCESS, "text/gemini");
     dir.body = oss.str();
-    getCache()->add(context->getRequest().getRequest(), dir);
-    sendCache(client, context);
+    context->send(dir);
+    context->getCache()->add(context->getCacheKey(), dir);
 }
 
-void FileHandler::readFile(SSLClient *client, FileContext *context) {
-    LOG_DEBUG("Opening file..");
-    uv_fs_open(client->getLoop(), context->getReq(), context->getPath().c_str(), 0, UV_FS_O_RDONLY, on_open);
-}
-
-void FileHandler::onFileOpen(SSLClient *client, FileContext *context, uv_file file) {
-    context->setFile(file);
-    uv_fs_read(client->getLoop(), context->getReq(), file, context->getBuf(), 1, context->getOffset(), on_read);
-}
-
-void FileHandler::onFileRead(SSLClient *client, FileContext *context, unsigned int read) {
-    LOG_DEBUG("read " << read << " bytes of data");
-    if (read > 0) {
-        LOG_DEBUG("read " << read << " bytes");
-        context->getBody() += string(context->getBuf()->base, read);
-        context->setOffset(context->getOffset() + read);
-        uv_fs_read(client->getLoop(), context->getReq(), context->getFile(), context->getBuf(), 1, context->getOffset(), on_read);
+void on_open(uv_fs_t *req) {
+    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
+    if (context == nullptr) {
+        uv_fs_req_cleanup(req);
         return;
     }
 
-    uv_fs_close(client->getLoop(), context->getReq(), context->getFile(), on_close);
-
-    CachedData response;
-    response.lifetime = settings->getCacheTime();
-    response.body = context->getBody();
-    response.response = 20;
-    response.meta = mimetypes.getType(context->getPath().c_str());
-    getCache()->add(context->getRequest().getRequest(), response);
-    sendCache(client, context);
+    int fd = uv_fs_get_result(req);
+    if (fd < 0) {
+        LOG_ERROR("open error: " << uv_strerror(uv_fs_get_result(req)));
+        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
+        context->send(error);
+        context->getCache()->add(context->getCacheKey(), error);
+        return;
+    }
+    context->file_fd = fd;
+    context->offset = 0;
+    uv_fs_read(context->getClient()->getLoop(), req, context->file_fd, &context->buf, 1, context->offset, on_read);
 }
 
-void FileHandler::gotInvalidPath(SSLClient *client, FileContext *context) {
-    CachedData error;
-    error.lifetime = settings->getCacheTime();
-    error.response = 51;
-    error.meta = "File does not exist";
-    getCache()->add(context->getRequest().getRequest(), error);
-    sendCache(client, context);
+void on_read(uv_fs_t *req) {
+    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
+    if (context == nullptr) {
+        uv_fs_req_cleanup(req);
+        return;
+    }
+
+    int read = uv_fs_get_result(req);
+    if (read < 0) {
+        LOG_ERROR("read error: " << uv_strerror(uv_fs_get_result(req)));
+        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
+        context->send(error);
+        context->getCache()->add(context->getCacheKey(), error);
+        return;
+    }
+
+    if (read > 0) {
+        context->buffer += string(context->filebuf, read);
+        context->offset += read;
+        uv_fs_read(context->getClient()->getLoop(), req, context->file_fd, &context->buf, 1, context->offset, on_read);
+        return;
+    }
+
+    uv_fs_close(context->getClient()->getLoop(), req, context->file_fd, on_close);
+    context->file_fd = 0;
+
+    CachedData response = context->createCache(RES_SUCCESS, mimetypes.getType(context->file.c_str()));
+    response.body = context->buffer;
+    context->send(response);
+    context->getCache()->add(context->getCacheKey(), response);
 }
 
-void FileHandler::handle(SSLClient *client, const GeminiRequest &request) {
-    client->setWriteReadyCallback(sentData);
-    ClientContext *ctx = static_cast<ClientContext *>(client->getContext());
-    FileContext *context = new FileContext(this, request, settings);
-    ctx->setContext(context, fileContextDestructor);
+void on_close(uv_fs_t *req) {
+    if (uv_fs_get_result(req) < 0) {
+        LOG_ERROR("close error: " << uv_strerror(uv_fs_get_result(req)));
+        return;
+    }
+}
 
-    // Check if the data has been cached already
+////////// FileContext //////////
+
+FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::shared_ptr<FileSettings> settings)
+        : ClientContext(handler, client, cache),
+          handler(handler),
+          settings(settings),
+          request(request) {
+    buf.base = filebuf;
+    buf.len = sizeof(filebuf);
+    ostringstream oss;
+    int port = request.getPort();
+    if (port == 0) {
+        port = 1965;
+    }
+    key.name = request.getPath();
+    hash<string> str_hash;
+    hash<FileContext*> ctx_hash;
+    key.hash = ctx_hash(this);
+    key.hash = key.hash * 31 + str_hash(request.getPath());
+    key.hash = key.hash * 31 + str_hash(request.getQuery());
+
+    uv_req_set_data((uv_req_t *)&req, this);
+}
+
+FileContext::~FileContext() {
+    if (processing_cache) {
+        getCache()->cancel(key);
+    }
+    if (file_fd) {
+        uv_fs_close(getClient()->getLoop(), &req, file_fd, on_close);
+    }
+    uv_fs_req_cleanup(&req);
+}
+
+void FileContext::onClose() {
+
+}
+
+void FileContext::onRead() {
+
+}
+
+void FileContext::onWrite() {
+
+}
+
+void FileContext::handle() {
     Cache *c = getCache();
-    if (c->isLoaded(request.getRequest())) {
-        sendCache(client, context);
+    // Check if the data has been cached already
+    if (c->isLoaded(getCacheKey())) {
+        send(c->get(getCacheKey()));
         return;
     }
     // Check if the data is being loaded
-    if (c->isLoading(request.getRequest())) {
-        c->getNotified(request.getRequest(), cacheReady, ctx);
+    if (c->isLoading(getCacheKey())) {
+        c->getNotified(getCacheKey(), onCacheReady, this);
         return;
     }
     // Tell the cache that the data is being loaded
-    c->loading(request.getRequest());
+    c->loading(getCacheKey());
+    processing_cache = true;
 
     // Find the path on file
     fs::path path(settings->getRoot());
-    string p = request.getPath();
+    string p = getRequest().getPath();
     if (p.rfind('/', 0) == 0) {
         p = p.substr(1);
     }
     path /= p;
     path = path.make_preferred();
-    string full = path.string();
-    context->setPath(path.string());
+    file = path.string();
 
     // find the realpath
-    uv_fs_t *req = context->getReq();
-    uv_req_set_data((uv_req_t *)req, client);
-    int res = uv_fs_realpath(client->getLoop(), context->getReq(), path.string().c_str(), got_realpath);
+    int res = uv_fs_realpath(getClient()->getLoop(), &req, path.string().c_str(), got_realpath);
     if (res == UV_ENOSYS) {
         cerr << "Error: Unable to read file due to unsupported operating system!" << endl;
-        delete client;
+        getClient()->crash();
         return;
     }
+}
+
+void FileContext::send(const CachedData &data) {
+    processing_cache = false;
+    string content = data.generateResponse();
+    getClient()->write(content.c_str(), content.length());
+    getClient()->close();
+
+    LOG_INFO(getRequest().getRequestName() << " [" << data.response << "]");
+}
+
+CachedData FileContext::createCache(int response, string meta) {
+    CachedData data;
+    data.lifetime = settings->getCacheTime();
+    data.response = response;
+    data.meta = meta;
+    return data;
+}
+
+////////// FileHandler //////////
+
+void FileHandler::handle(SSLClient *client, const GeminiRequest &request) {
+    FileContext *context = new FileContext(this, client, getCache(), request, settings);
+    _add_context(context);
+    client->setContext(context);
+
+    context->handle();
 }

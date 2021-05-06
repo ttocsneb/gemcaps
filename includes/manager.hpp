@@ -93,7 +93,7 @@ public:
 /**
  * Directs requests to the proper handler
  */
-class Manager {
+class Manager : public ContextManager {
 public:
     struct ServerSettings {
         int port;
@@ -119,13 +119,14 @@ public:
      */
     void load(const std::string &directory);
 
+    void handle(SSLClient *client);
     /**
      * Handle the request
      * 
      * @param client client
      * @param request request header
      */
-    void handle(SSLClient *client, const GeminiRequest &request);
+    void handle(SSLClient *client, GeminiRequest request);
 
     const std::set<ServerSettings> &getServers() const { return servers; }
 };

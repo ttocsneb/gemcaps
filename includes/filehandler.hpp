@@ -12,49 +12,45 @@ class FileHandler;
 
 
 class FileContext : public ClientContext {
+private:
+    CacheKey key;
+    GeminiRequest request;
 public:
     uv_fs_t req;
     std::string file;
     std::shared_ptr<FileSettings> settings;
     FileHandler *handler;
-    uv_file file_fd;
-    unsigned long offset;
+    uv_file file_fd = 0;
+    unsigned long offset = 0;
     char filebuf[1024];
     uv_buf_t buf;
-    bool processing_cache;
+    bool processing_cache = false;
 
-    FileContext(SSLClient *client, Cache *cache, GeminiRequest request, FileHandler *handler, std::shared_ptr<FileSettings> settings)
-        : ClientContext(client, cache, request),
-          handler(handler),
-          settings(settings),
-          offset(0),
-          file_fd(0),
-          processing_cache(false) {
-        buf.base = filebuf;
-        buf.len = sizeof(filebuf);
-    }
+    FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::shared_ptr<FileSettings> settings);
     ~FileContext();
 
     void onClose();
     void onRead();
     void onWrite();
+
+    void handle();
+    void send(const CachedData &data);
+    CachedData createCache(int response, std::string meta);
+
+    const CacheKey &getCacheKey() const { return key; }
+    const GeminiRequest &getRequest() const { return request; }
 };
 
 /**
  * The file request handler
  */
-class FileHandler : public Handler {
+class FileHandler : public Handler, public ContextManager {
 private:
     std::shared_ptr<FileSettings> settings;
-    std::set<FileContext*> contexts;
-protected:
-    void _notify_close(FileContext *context);
-    friend FileContext;
 public:
     FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Glob host, int port)
         : settings(settings),
           Handler(cache, host, port, settings->getRules()) {}
-    ~FileHandler();
 
     void handle(SSLClient *client, const GeminiRequest &request);
 };

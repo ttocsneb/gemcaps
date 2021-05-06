@@ -1,5 +1,7 @@
 #include "manager.hpp"
 
+#include "main.hpp"
+
 #include "filehandler.hpp"
 #include "gsgihander.hpp"
 
@@ -18,134 +20,47 @@ using std::endl;
 
 namespace fs = std::filesystem;
 
-ClientContext::~ClientContext() {
-    if (destructor) {
-        destructor(context);
-    }
-}
+class RequestContext : public ClientContext {
+    Manager *manager;
+public:
+    RequestContext(Manager *manager, SSLClient *client, Cache *cache)
+        : ClientContext(manager, client, cache),
+          manager(manager) {}
+    void onClose() {
 
-void ClientContext::setContext(void *ctx, ContextDestructorCB cb) {
-    if (destructor) {
-        destructor(context);
     }
-    destructor = cb;
-    context = ctx;
-}
-
-GeminiRequest::GeminiRequest(string request)
-        : port(0),
-          valid(true) {
-    // Remove any leading or trailing whitespace
-
-    // Find the first character of the request
-    for (int i = 0; i < request.length(); ++i) {
-        if (!isspace(request.at(i))) {
-            request = request.substr(i);
-            break;
-        }
-    }
-    // Find the last character of the request
-    for (int i = request.length() - 1; i >= 0; --i) {
-        if (!isspace(request.at(i))) {
-            request = request.substr(0, i + 1);
-            break;
-        }
-    }
-
-    this->request = request;
-
-    // Parse the request
-    size_t pos = request.find("://");
-    if (pos == string::npos) {
-        valid = false;
-        return;
-    }
-    schema = request.substr(0, pos);
-    size_t start = pos + 3;
-    pos = request.find(":", start);
-    // Check if there is a port or not
-    if (pos != string::npos) {
-        // There is a port
-        // Get the port
-        host = request.substr(start, pos - start);
-        if (host.empty() || host.at(0) == '/') {
-            valid = false;
-            return;
-        }
-        start = pos + 1;
-        pos = request.find("/", start);
-        if (pos == string::npos) {
-            // There is no path
-            pos = request.find("?", start);
-            if (pos == string::npos) {
-                // There is no query
-                port = atoi(request.substr(start).c_str());
+    void onRead() {
+        char header[1024];
+        SSLClient *client = getClient();
+        int read = client->read(header, sizeof(header));
+        if (read < 0) {
+            if (client->wants_read()) {
                 return;
             }
-            // There is a query
-            port = atoi(request.substr(start, pos - start).c_str());
-            // get query component
-            query = request.substr(pos);
+            LOG_ERROR("WOLFSSL - " << client->get_error_string());
             return;
         }
-        // There is a path
-        port = atoi(request.substr(start, pos - start).c_str());
-        start = pos;
-    } else {
-        pos = request.find("/", start);
-        if (pos == string::npos) {
-            pos = request.find("?", start);
-            if (pos == string::npos) {
-                // There is no query
-                host = request.substr(start);
-                if (host.empty()) {
-                    valid = false;
-                }
-                return;
-            }
-            // There is a query
-            host = request.substr(start, pos - start);
-            if (host.empty()) {
-                valid = false;
-                return;
-            }
-            // Get the query component
-            query = request.substr(pos);
+        string data(header, read);
+        buffer += string(header, read);
+        // Close the connection if the header is too big
+        if (buffer.length() > 1024) {
+            client->close();
             return;
         }
-        // There is a path
-        host = request.substr(start, pos - start);
-        if (host.empty()) {
-            valid = false;
+        // The client hasn't sent all of the data
+        if (buffer.find('\n') == string::npos) {
             return;
         }
-        start = pos;
+        GeminiRequest request(buffer);
+        if (request.isValid()) {
+            manager->handle(client, request);
+            return;
+        }
     }
-    // get path component
-    pos = request.find("?", start);
-    if (pos == string::npos) {
-        // There is no query component
-        path = request.substr(start);
-        return;
-    }
-    path = request.substr(start, pos - start);
+    void onWrite() {
 
-    // get the query component
-    query = request.substr(pos);
-
-    // Validate the schema
-    static const string Schema("gemini");
-    if (schema.length() != Schema.length()) {
-        valid = false;
-        return;
     }
-    for (int i = 0; i < Schema.length(); ++i) {
-        if (tolower(schema.at(i)) != tolower(Schema.at(i))) {
-            valid = false;
-            return;
-        }
-    }
-}
+};
 
 bool Handler::shouldHandle(const string &host, int port, const string &path) {
     if (!(this->port == port && this->host == host)) {
@@ -224,7 +139,14 @@ void Manager::loadCapsule(const string& filename, const string& name) {
     }
 }
 
-void Manager::handle(SSLClient *client, const GeminiRequest &request) {
+void Manager::handle(SSLClient *client) {
+    client->setTimeout(5000);
+    RequestContext *context = new RequestContext(this, client, &cache);
+    _add_context(context);
+    client->setContext(context);
+}
+
+void Manager::handle(SSLClient *client, GeminiRequest request) {
     const string &host = request.getHost();
     const string &path = request.getPath();
     int port = request.getPort();
@@ -236,5 +158,6 @@ void Manager::handle(SSLClient *client, const GeminiRequest &request) {
     }
     string error = "41 There is no server available to process your request\r\n";
     client->write(error.c_str(), error.length());
+    client->close();
     return;
 }

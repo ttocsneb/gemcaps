@@ -27,23 +27,41 @@ public:
     const std::string &getPath() const { return path; }
     const std::string &getQuery() const { return query; }
     const std::string &getRequest() const { return request; }
+
+    std::string getRequestName() const;
 };
 
 
+class ClientContext;
+
+class ContextManager {
+private:
+    std::set<ClientContext*> contexts;
+protected:
+    virtual void _close_context(ClientContext *ctx);
+    virtual void _add_context(ClientContext *ctx);
+    friend ClientContext;
+public:
+    virtual ~ContextManager();
+};
+
 class ClientContext {
 private:
-    GeminiRequest request;
     SSLClient *client;
     Cache *cache;
+    ContextManager *manager;
+protected:
+    void close();
+    friend SSLClient;
 public:
     std::string buffer;
 
-    ClientContext(SSLClient *client, Cache *cache, GeminiRequest request)
-        : request(request),
+    ClientContext(ContextManager *manager, SSLClient *client, Cache *cache)
+        : manager(manager),
           client(client),
           cache(cache) {}
-    
-    const GeminiRequest &getRequest() const { return request; }
+    virtual ~ClientContext() {}
+
     SSLClient *getClient() { return client; }
     Cache *getCache() { return cache; }
 
