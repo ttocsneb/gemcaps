@@ -314,8 +314,8 @@ FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, 
     }
     key.name = request.getPath();
     hash<string> str_hash;
-    hash<FileContext*> ctx_hash;
-    key.hash = ctx_hash(this);
+    hash<FileHandler*> ctx_hash;
+    key.hash = ctx_hash(handler);
     key.hash = key.hash * 31 + str_hash(request.getPath());
     key.hash = key.hash * 31 + str_hash(request.getQuery());
 
@@ -329,7 +329,6 @@ FileContext::~FileContext() {
     if (file_fd) {
         uv_fs_close(getClient()->getLoop(), &req, file_fd, on_close);
     }
-    uv_fs_req_cleanup(&req);
 }
 
 void FileContext::onClose() {
@@ -382,10 +381,10 @@ void FileContext::handle() {
 void FileContext::send(const CachedData &data) {
     processing_cache = false;
     string content = data.generateResponse();
+    LOG_INFO(getRequest().getRequestName() << " [" << data.response << "]");
     getClient()->write(content.c_str(), content.length());
     getClient()->close();
 
-    LOG_INFO(getRequest().getRequestName() << " [" << data.response << "]");
 }
 
 CachedData FileContext::createCache(int response, string meta) {

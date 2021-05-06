@@ -145,7 +145,7 @@ private:
 
     std::map<CacheKey, std::shared_ptr<CacheInfo>> cache;
 
-    unsigned int size;
+    unsigned int size = 0;
 
     /**
      * Remove the cache closest to timing out

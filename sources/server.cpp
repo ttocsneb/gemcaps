@@ -38,7 +38,6 @@ void cb_uv_write(uv_write_t *req, int status) {
     if (client) {
         client->_on_write(req, status);
     }
-
 }
 
 void cb_uv_alloc(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
@@ -73,7 +72,7 @@ int cb_IOSend(WOLFSSL *ssl, char *buf, int size, void *ctx) {
 void on_timeout(uv_timer_t *timeout) {
     SSLClient *client = static_cast<SSLClient *>(uv_handle_get_data((uv_handle_t *)timeout));
     if (client) {
-        client->close();
+        client->crash();
     }
 }
 
@@ -150,10 +149,11 @@ int SSLClient::write(const void *data, int size) {
 }
 
 void SSLClient::close() {
-    if (queued_writes > 0) {
+    if (queued_writes > 0 && !queued_close) {
         queued_close = true;
         return;
     }
+    queued_close = false;
     uv_timer_stop(&timeout);
     if (client) {
         uv_close((uv_handle_t *)client, cb_uv_close);
@@ -161,6 +161,7 @@ void SSLClient::close() {
 }
 
 void SSLClient::crash() {
+    queued_close = false;
     uv_timer_stop(&timeout);
     if (client) {
         uv_tcp_close_reset(client, cb_uv_close);
@@ -207,10 +208,18 @@ int SSLClient::_send(const char *buf, size_t size) {
     write_buf->len = size;
 
     uv_write_t *write_req = new uv_write_t;
-    uv_write(write_req, (uv_stream_t *)client, write_buf, 1, cb_uv_write);
-    write_requests.insert_or_assign(write_req, write_buf);
 
+    write_requests.insert_or_assign(write_req, write_buf);
     ++queued_writes;
+
+    int written = uv_try_write((uv_stream_t *)client, write_buf, 1);
+    if (written > 0) {
+        write_req->handle = (uv_stream_t *)client;
+        write_req->cb = cb_uv_write;
+        _on_write(write_req, 0);
+        return written;
+    }
+    int res = uv_write(write_req, (uv_stream_t *)client, write_buf, 1, cb_uv_write);
 
     return size;
 }
@@ -380,6 +389,10 @@ void SSLServer::_accept(uv_tcp_t *conn) {
         cerr << "Error accepting connection: No accept callback has been defined" << endl;
         return;
     }
+    // TODO: There is some unknown bug that causes the server to crash after several transactions. 
+    // It is a malloc error that is caused by malformed data. I am assuming that there is some 
+    // memory leak or an out of order delete somewhere, but I don't know where. I will have to
+    // wait until I get access to a computer with valgrind.
     WOLFSSL *ssl = wolfSSL_new(context);
     if (ssl == nullptr) {
         return;
