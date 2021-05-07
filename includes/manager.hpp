@@ -14,7 +14,6 @@
 #include <yaml-cpp/yaml.h>
 
 #include "cache.hpp"
-#include "glob.hpp"
 #include "settings.hpp"
 #include "server.hpp"
 #include "context.hpp"
@@ -44,10 +43,10 @@ typedef void(*ContextDestructorCB)(void *ctx);
  */
 class Handler {
 private:
-   Glob host;
+   Regex host;
    int port;
    Cache *cache;
-   std::vector<Glob> rules;
+   std::vector<Regex> rules;
 protected:
     /**
      * Get the cache
@@ -64,7 +63,7 @@ public:
      * @param port port to match against
      * @param rules rules to match against
      */
-    Handler(Cache *cache, Glob host, int port, std::vector<Glob> rules)
+    Handler(Cache *cache, Regex host, int port, std::vector<Regex> rules)
         : cache(cache),
           host(host),
           port(port),
@@ -107,11 +106,13 @@ private:
     std::vector<std::shared_ptr<Handler>> handlers;
     std::set<ServerSettings> servers;
     Cache cache;
+    unsigned int timeout;
 
     void loadCapsule(const std::string &filename, const std::string &file);
 public:
-    Manager(uv_loop_t *loop, unsigned int max_cache = 0)
-        : cache(loop, max_cache) {}
+    Manager(uv_loop_t *loop, unsigned int max_cache = 0, unsigned int timeout = 5000)
+        : cache(loop, max_cache),
+          timeout(timeout) {}
     /**
      * Load all handlers in the specified directory
      * 

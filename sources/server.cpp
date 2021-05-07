@@ -153,6 +153,7 @@ void SSLClient::close() {
         queued_close = true;
         return;
     }
+    closing = true;
     queued_close = false;
     uv_timer_stop(&timeout);
     if (client) {
@@ -162,6 +163,7 @@ void SSLClient::close() {
 
 void SSLClient::crash() {
     queued_close = false;
+    closing = true;
     uv_timer_stop(&timeout);
     if (client) {
         uv_tcp_close_reset(client, cb_uv_close);
@@ -180,7 +182,7 @@ bool SSLClient::wants_read() const {
 }
 
 bool SSLClient::is_open() const {
-    return client != nullptr;
+    return !closing && client != nullptr;
 }
 
 int SSLClient::get_error() const {
@@ -278,7 +280,7 @@ void SSLClient::_on_receive(ssize_t read, const uv_buf_t *buf) {
     if (context) {
         do {
             context->onRead();
-        } while (hasData() && !wolfSSL_want_read(ssl));
+        } while (is_open() && hasData() && !wolfSSL_want_read(ssl));
     }
 }
 

@@ -38,6 +38,7 @@ public:
                 return;
             }
             LOG_ERROR("WOLFSSL - " << client->get_error_string());
+            client->crash();
             return;
         }
         string data(header, read);
@@ -63,7 +64,7 @@ public:
 };
 
 bool Handler::shouldHandle(const string &host, int port, const string &path) {
-    if (!(this->port == port && this->host == host)) {
+    if (!(this->port == port && this->host.match(host))) {
         return false;
     }
     if (rules.empty()) {
@@ -97,7 +98,7 @@ void Manager::loadCapsule(const string& filename, const string& name) {
     CapsuleSettings settings;
     settings.loadFile(filename);
 
-    const Glob &host = settings.getHost();
+    const Regex &host = settings.getHost();
     int port = settings.getPort();
     const auto &confs = settings.getHandlers();
 
@@ -140,7 +141,7 @@ void Manager::loadCapsule(const string& filename, const string& name) {
 }
 
 void Manager::handle(SSLClient *client) {
-    client->setTimeout(5000);
+    client->setTimeout(timeout);
     RequestContext *context = new RequestContext(this, client, &cache);
     _add_context(context);
     client->setContext(context);

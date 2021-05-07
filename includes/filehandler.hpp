@@ -48,7 +48,7 @@ class FileHandler : public Handler, public ContextManager {
 private:
     std::shared_ptr<FileSettings> settings;
 public:
-    FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Glob host, int port)
+    FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Regex host, int port)
         : settings(settings),
           Handler(cache, host, port, settings->getRules()) {}
 

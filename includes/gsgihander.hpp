@@ -15,7 +15,7 @@ private:
 
     void create();
 public:
-    GSGIHandler(Cache *cache, std::shared_ptr<GSGISettings> settings, Glob host, int port)
+    GSGIHandler(Cache *cache, std::shared_ptr<GSGISettings> settings, Regex host, int port)
             : settings(settings),
             Handler(cache, host, port, settings->getRules()) {
     }

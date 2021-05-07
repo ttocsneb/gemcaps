@@ -16,19 +16,20 @@ using std::make_shared;
 
 using std::cerr;
 using std::endl;
+using std::regex;
 
 
 namespace YAML {
     template<>
-    struct convert<Glob> {
-        static Node encode(const Glob &rhs) {
-            return Node(rhs.str());
+    struct convert<Regex> {
+        static Node encode(const Regex &rhs) {
+            return Node(rhs.getPattern());
         }
-        static bool decode(const Node &node, Glob &rhs) {
+        static bool decode(const Node &node, Regex &rhs) {
             if (!node.IsScalar()) {
                 return false;
             }
-            rhs = node.as<string>();
+            rhs = Regex(node.as<string>(), regex::ECMAScript | regex::optimize);
             return true;
         }
     };
@@ -56,13 +57,16 @@ void Settings::loadFile(const string &path) {
 void HandlerSettings::load(YAML::Node &settings) {
     type = settings["type"].as<string>();
     if (settings["path"].IsDefined()) {
-        path = settings["path"].as<string>();
+        string p = settings["path"].as<string>();
+        if (p.find('/', p.length() - 1) != string::npos) {
+            p = p.substr(0, p.length() - 1) + "|" + p + ".*";
+        } else {
+            p = p + ".*";
+        }
+        path = Regex(p, regex::ECMAScript | regex::optimize);
     }
     if (settings["rules"].IsDefined()) {
-        rules = settings["rules"].as<vector<Glob>>();
-    }
-    for (auto rule : rules) {
-        LOG_INFO("rule: " << rule.str());
+        rules = settings["rules"].as<vector<Regex>>();
     }
 }
 
@@ -112,9 +116,9 @@ void FileSettings::load(YAML::Node &settings) {
         if (item.find(p.preferred_separator, item.length() - 1) == string::npos) {
 			item += p.preferred_separator;
         }
-		item += '*';
+        item = item.substr(0, item.length() - 1) + "|" + item + ".*";
         LOG_DEBUG("Allowed Dir: " << item);
-        allowedDirs.push_back(item);
+        allowedDirs.push_back(Regex(item, regex::ECMAScript | regex::optimize));
         uv_fs_req_cleanup(&req);
     }
 }
@@ -148,9 +152,9 @@ void CapsuleSettings::_load_handler(YAML::Node &settings) {
 void CapsuleSettings::load(YAML::Node &settings) {
     handlers.clear();
     if (settings["host"].IsDefined()) {
-        host = settings["host"].as<Glob>();
+        host = settings["host"].as<Regex>();
     } else {
-        host = "*";
+        host = Regex(".*", regex::ECMAScript | regex::optimize);
     }
     if (settings["port"].IsDefined()) {
         port = settings["port"].as<int>();
@@ -218,5 +222,10 @@ void GemCapSettings::load(YAML::Node &settings) {
         cacheSize = settings["cacheSize"].as<float>() * 1000;
     } else {
         cacheSize = 50000;
+    }
+    if (settings["timeout"].IsDefined()) {
+        timeout = settings["timeout"].as<float>() * 1000;
+    } else {
+        timeout = 5000;
     }
 }

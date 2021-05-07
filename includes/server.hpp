@@ -30,6 +30,7 @@ private:
     int buffer_len = 0;
     int queued_writes = 0;
     bool queued_close = false;
+    bool closing = false;
 
     SSLServer *server;
 

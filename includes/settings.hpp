@@ -9,7 +9,7 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include "glob.hpp"
+#include "re.hpp"
 
 /**
  * The base class for all settings objects
@@ -55,8 +55,8 @@ public:
 class HandlerSettings : public Settings {
 private:
     std::string type;
-    Glob path;
-    std::vector<Glob> rules;
+    Regex path;
+    std::vector<Regex> rules;
 public:
     virtual void load(YAML::Node &settings);
 
@@ -71,13 +71,13 @@ public:
      * 
      * @return the path
      */
-    const Glob &getPath() const { return path; }
+    const Regex &getPath() const { return path; }
     /**
      * Get the rules for the handler
      * 
      * @return the rules
      */
-    const std::vector<Glob> &getRules() const { return rules; }
+    const std::vector<Regex> &getRules() const { return rules; }
 };
 
 /**
@@ -94,7 +94,7 @@ class FileSettings : public HandlerSettings {
 private:
     std::string root;
     unsigned int cacheTime;
-    std::vector<Glob> allowedDirs;
+    std::vector<Regex> allowedDirs;
     bool readDirs;
 public:
     virtual void load(YAML::Node &settings);
@@ -118,7 +118,7 @@ public:
      *
      * @return the allowed directories
      */
-    const std::vector<Glob> &getAllowedDirs() const { return allowedDirs; }
+    const std::vector<Regex> &getAllowedDirs() const { return allowedDirs; }
     /**
      * Get the read directories
      * 
@@ -170,7 +170,7 @@ public:
  */
 class CapsuleSettings : public Settings {
 private:
-    Glob host;
+    Regex host;
     int port;
     std::string listen;
     std::string cert;
@@ -190,7 +190,7 @@ public:
      * 
      * @return the host
      */
-    const Glob &getHost() const { return host; }
+    const Regex &getHost() const { return host; }
     /**
      * Get the port for the capsule
      * 
@@ -244,6 +244,7 @@ private:
     int port;
     std::string capsules;
     unsigned int cacheSize;
+    unsigned int timeout;
 public:
     virtual void load(YAML::Node &settings);
 
@@ -290,6 +291,13 @@ public:
      * @return cache size
      */
     unsigned int getCacheSize() const { return cacheSize; }
+
+    /**
+     * Get the timeout for connections
+     * 
+     * @return timeout
+     */
+    unsigned int getTimeout() const { return timeout; }
 };
 
 #endif
