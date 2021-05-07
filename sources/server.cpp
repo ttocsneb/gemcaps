@@ -201,8 +201,6 @@ int SSLClient::_send(const char *buf, size_t size) {
     }
     resetTimeout();
     LOG_INFO("Leak");
-    char *msg = new char[size]; // This is a memory leak!
-    memcpy(msg, buf, size);
 
     // Make sure that the writing buffer has enough space
     uv_buf_t *write_buf = new uv_buf_t;
