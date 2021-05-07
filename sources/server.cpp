@@ -200,7 +200,8 @@ int SSLClient::_send(const char *buf, size_t size) {
         return WOLFSSL_CBIO_ERR_CONN_CLOSE;
     }
     resetTimeout();
-    char *msg = new char[size];
+    LOG_INFO("Leak");
+    char *msg = new char[size]; // This is a memory leak!
     memcpy(msg, buf, size);
 
     // Make sure that the writing buffer has enough space
@@ -221,6 +222,7 @@ int SSLClient::_send(const char *buf, size_t size) {
         _on_write(write_req, 0);
         return written;
     }
+    LOG_INFO("EAGAIN");
     int res = uv_write(write_req, (uv_stream_t *)client, write_buf, 1, cb_uv_write);
 
     return size;
@@ -285,6 +287,7 @@ void SSLClient::_on_receive(ssize_t read, const uv_buf_t *buf) {
 }
 
 void SSLClient::_on_write(uv_write_t *req, int status) {
+    LOG_INFO("Leak Closed");
     uv_buf_t *buf = write_requests.at(req);
     delete[] buf->base;
     delete buf;
@@ -315,7 +318,7 @@ void new_connection(uv_stream_t *stream, int status) {
     SSLServer *server = static_cast<SSLServer *>(uv_handle_get_data((uv_handle_t *)stream));
 
     uv_tcp_t *conn = new uv_tcp_t;
-    uv_tcp_init(uv_handle_get_loop((uv_handle_t *)stream), conn);
+    uv_tcp_init(uv_handle_get_loop((uv_handle_t *)stream), conn); // invalid write of size 8 to SSLClient 136 bytes inside a block of SSLClient
     if (uv_accept(stream, (uv_stream_t *)conn) != 0) {
         uv_close((uv_handle_t *)conn, delete_handle);
         return;
