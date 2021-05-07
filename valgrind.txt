@@ -1,0 +1,134 @@
+==4969== Memcheck, a memory error detector
+==4969== Copyright (C) 2002-2017, and GNU GPL'd, by Julian Seward et al.
+==4969== Using Valgrind-3.15.0 and LibVEX; rerun with -h for copyright info
+==4969== Command: build/bin/gemcaps example/conf.yml
+==4969== 
+INFO Listening on 0.0.0.0:1965
+==4969== Invalid write of size 8
+==4969==    at 0x486CA86: uv__stream_init (stream.c:90)
+==4969==    by 0x486FFF0: uv_tcp_init_ex (tcp.c:125)
+==4969==    by 0x4870080: uv_tcp_init (tcp.c:144)
+==4969==    by 0x163AF7: new_connection(uv_stream_s*, int) (server.cpp:318)
+==4969==    by 0x486D207: uv__server_io (stream.c:570)
+==4969==    by 0x48766B1: uv__io_poll (linux-core.c:462)
+==4969==    by 0x485CD2F: uv_run (core.c:389)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969==  Address 0x4e5f348 is 136 bytes inside a block of size 264 free'd
+==4969==    at 0x483D1CF: operator delete(void*, unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x163B8D: SSLServer::_notify_close(SSLClient*) (server.cpp:328)
+==4969==    by 0x163790: SSLClient::_on_close() (server.cpp:258)
+==4969==    by 0x162CB1: cb_uv_close(uv_handle_s*) (server.cpp:52)
+==4969==    by 0x485CAE0: uv__finish_close (core.c:307)
+==4969==    by 0x485CB2A: uv__run_closing_handles (core.c:321)
+==4969==    by 0x485CD53: uv_run (core.c:399)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969==  Block was alloc'd at
+==4969==    at 0x483BE63: operator new(unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x163FFF: SSLServer::_accept(uv_tcp_s*) (server.cpp:402)
+==4969==    by 0x163B3B: new_connection(uv_stream_s*, int) (server.cpp:323)
+==4969==    by 0x486D207: uv__server_io (stream.c:570)
+==4969==    by 0x48766B1: uv__io_poll (linux-core.c:462)
+==4969==    by 0x485CD2F: uv_run (core.c:389)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969== 
+==4969== Invalid write of size 8
+==4969==    at 0x485CAA6: uv__finish_close (core.c:304)
+==4969==    by 0x485CB2A: uv__run_closing_handles (core.c:321)
+==4969==    by 0x485CD53: uv_run (core.c:399)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969==  Address 0x4e5f348 is 136 bytes inside a block of size 264 free'd
+==4969==    at 0x483D1CF: operator delete(void*, unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x163B8D: SSLServer::_notify_close(SSLClient*) (server.cpp:328)
+==4969==    by 0x163790: SSLClient::_on_close() (server.cpp:258)
+==4969==    by 0x162CB1: cb_uv_close(uv_handle_s*) (server.cpp:52)
+==4969==    by 0x485CAE0: uv__finish_close (core.c:307)
+==4969==    by 0x485CB2A: uv__run_closing_handles (core.c:321)
+==4969==    by 0x485CD53: uv_run (core.c:399)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969==  Block was alloc'd at
+==4969==    at 0x483BE63: operator new(unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x163FFF: SSLServer::_accept(uv_tcp_s*) (server.cpp:402)
+==4969==    by 0x163B3B: new_connection(uv_stream_s*, int) (server.cpp:323)
+==4969==    by 0x486D207: uv__server_io (stream.c:570)
+==4969==    by 0x48766B1: uv__io_poll (linux-core.c:462)
+==4969==    by 0x485CD2F: uv_run (core.c:389)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969== 
+^C==4969== 
+==4969== Process terminating with default action of signal 2 (SIGINT)
+==4969==    at 0x4D3B58A: epoll_wait (epoll_wait.c:30)
+==4969==    by 0x487629A: uv__io_poll (linux-core.c:324)
+==4969==    by 0x485CD2F: uv_run (core.c:389)
+==4969==    by 0x12E1E1: main (main.cpp:94)
+==4969== 
+==4969== HEAP SUMMARY:
+==4969==     in use at exit: 28,517 bytes in 138 blocks
+==4969==   total heap usage: 983 allocs, 845 frees, 469,425 bytes allocated
+==4969== 
+==4969== 18 bytes in 2 blocks are definitely lost in loss record 9 of 58
+==4969==    at 0x483C583: operator new[](unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x1634E8: SSLClient::_send(char const*, unsigned long) (server.cpp:203)
+==4969==    by 0x162D4B: cb_IOSend(WOLFSSL*, char*, int, void*) (server.cpp:69)
+==4969==    by 0x204C6D: SendBuffered (internal.c:8476)
+==4969==    by 0x217A65: SendServerHelloDone (internal.c:29255)
+==4969==    by 0x1AF462: wolfSSL_accept (ssl.c:13208)
+==4969==    by 0x1A8F25: wolfSSL_negotiate (ssl.c:1438)
+==4969==    by 0x20E7D5: ReceiveData (internal.c:18813)
+==4969==    by 0x1A9B99: wolfSSL_read_internal (ssl.c:2083)
+==4969==    by 0x1A9C0E: wolfSSL_read (ssl.c:2131)
+==4969==    by 0x1631E4: SSLClient::read(void*, int) (server.cpp:144)
+==4969==    by 0x1340CB: RequestContext::onRead() (manager.cpp:35)
+==4969== 
+==4969== 190 bytes in 2 blocks are definitely lost in loss record 38 of 58
+==4969==    at 0x483C583: operator new[](unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x1634E8: SSLClient::_send(char const*, unsigned long) (server.cpp:203)
+==4969==    by 0x162D4B: cb_IOSend(WOLFSSL*, char*, int, void*) (server.cpp:69)
+==4969==    by 0x204C6D: SendBuffered (internal.c:8476)
+==4969==    by 0x2145DF: SendServerHello (internal.c:26054)
+==4969==    by 0x1AF293: wolfSSL_accept (ssl.c:13139)
+==4969==    by 0x1A8F25: wolfSSL_negotiate (ssl.c:1438)
+==4969==    by 0x20E7D5: ReceiveData (internal.c:18813)
+==4969==    by 0x1A9B99: wolfSSL_read_internal (ssl.c:2083)
+==4969==    by 0x1A9C0E: wolfSSL_read (ssl.c:2131)
+==4969==    by 0x1631E4: SSLClient::read(void*, int) (server.cpp:144)
+==4969==    by 0x1340CB: RequestContext::onRead() (manager.cpp:35)
+==4969== 
+==4969== 1,188 bytes in 2 blocks are definitely lost in loss record 53 of 58
+==4969==    at 0x483C583: operator new[](unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x1634E8: SSLClient::_send(char const*, unsigned long) (server.cpp:203)
+==4969==    by 0x162D4B: cb_IOSend(WOLFSSL*, char*, int, void*) (server.cpp:69)
+==4969==    by 0x204C6D: SendBuffered (internal.c:8476)
+==4969==    by 0x204947: SendHandshakeMsg (internal.c:8319)
+==4969==    by 0x215F67: SendServerKeyExchange (internal.c:27570)
+==4969==    by 0x1AF3BA: wolfSSL_accept (ssl.c:13183)
+==4969==    by 0x1A8F25: wolfSSL_negotiate (ssl.c:1438)
+==4969==    by 0x20E7D5: ReceiveData (internal.c:18813)
+==4969==    by 0x1A9B99: wolfSSL_read_internal (ssl.c:2083)
+==4969==    by 0x1A9C0E: wolfSSL_read (ssl.c:2131)
+==4969==    by 0x1631E4: SSLClient::read(void*, int) (server.cpp:144)
+==4969== 
+==4969== 3,140 bytes in 2 blocks are definitely lost in loss record 55 of 58
+==4969==    at 0x483C583: operator new[](unsigned long) (in /usr/lib/x86_64-linux-gnu/valgrind/vgpreload_memcheck-amd64-linux.so)
+==4969==    by 0x1634E8: SSLClient::_send(char const*, unsigned long) (server.cpp:203)
+==4969==    by 0x162D4B: cb_IOSend(WOLFSSL*, char*, int, void*) (server.cpp:69)
+==4969==    by 0x204C6D: SendBuffered (internal.c:8476)
+==4969==    by 0x20DF5B: SendCertificate (internal.c:18026)
+==4969==    by 0x1AF301: wolfSSL_accept (ssl.c:13155)
+==4969==    by 0x1A8F25: wolfSSL_negotiate (ssl.c:1438)
+==4969==    by 0x20E7D5: ReceiveData (internal.c:18813)
+==4969==    by 0x1A9B99: wolfSSL_read_internal (ssl.c:2083)
+==4969==    by 0x1A9C0E: wolfSSL_read (ssl.c:2131)
+==4969==    by 0x1631E4: SSLClient::read(void*, int) (server.cpp:144)
+==4969==    by 0x1340CB: RequestContext::onRead() (manager.cpp:35)
+==4969== 
+==4969== LEAK SUMMARY:
+==4969==    definitely lost: 4,536 bytes in 8 blocks
+==4969==    indirectly lost: 0 bytes in 0 blocks
+==4969==      possibly lost: 0 bytes in 0 blocks
+==4969==    still reachable: 23,981 bytes in 130 blocks
+==4969==         suppressed: 0 bytes in 0 blocks
+==4969== Reachable blocks (those to which a pointer was found) are not shown.
+==4969== To see them, rerun with: --leak-check=full --show-leak-kinds=all
+==4969== 
+==4969== For lists of detected and suppressed errors, rerun with: -s
+==4969== ERROR SUMMARY: 6 errors from 6 contexts (suppressed: 0 from 0)
