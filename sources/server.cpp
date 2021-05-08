@@ -83,20 +83,16 @@ SSLClient::SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl)
           timeout_time(0) {
     wolfSSL_SetIOReadCtx(ssl, this);
     wolfSSL_SetIOWriteCtx(ssl, this);
+    timeout = new uv_timer_t;
     uv_handle_set_data((uv_handle_t *)client, this);
-    uv_timer_init(getLoop(), &timeout);
-    uv_handle_set_data((uv_handle_t *)&timeout, this);
+    uv_timer_init(getLoop(), timeout);
+    uv_handle_set_data((uv_handle_t *)timeout, this);
 }
 
 SSLClient::~SSLClient() {
-    uv_timer_stop(&timeout);
     wolfSSL_free(ssl);
-    if (client) {
-        uv_unref((uv_handle_t *)client);
-        uv_close((uv_handle_t *)client, delete_handle);
-    }
-    ssl = nullptr;
-    client = nullptr;
+    delete client;
+    uv_close((uv_handle_t *)timeout, delete_handle);
     if (buffer != nullptr) {
         delete[] buffer;
         buffer = nullptr;
@@ -105,9 +101,6 @@ SSLClient::~SSLClient() {
         delete[] pair.second->base;
         delete pair.second;
         delete pair.first;
-    }
-    if (context) {
-        context->close();
     }
 }
 
@@ -125,19 +118,19 @@ void SSLClient::stop_listening() {
 
 void SSLClient::setTimeout(unsigned int time) {
     timeout_time = time;
-    uv_timer_stop(&timeout);
+    uv_timer_stop(timeout);
     if (time == 0) {
         return;
     }
-    uv_timer_start(&timeout, on_timeout, time, 0);
+    uv_timer_start(timeout, on_timeout, time, 0);
 }
 
 void SSLClient::resetTimeout() {
     if (timeout_time == 0) {
         return;
     }
-    uv_timer_stop(&timeout);
-    uv_timer_start(&timeout, on_timeout, timeout_time, 0);
+    uv_timer_stop(timeout);
+    uv_timer_start(timeout, on_timeout, timeout_time, 0);
 }
 
 int SSLClient::read(void *buffer, int size) {
@@ -155,7 +148,7 @@ void SSLClient::close() {
     }
     closing = true;
     queued_close = false;
-    uv_timer_stop(&timeout);
+    uv_timer_stop(timeout);
     if (client) {
         uv_close((uv_handle_t *)client, cb_uv_close);
     }
@@ -164,15 +157,20 @@ void SSLClient::close() {
 void SSLClient::crash() {
     queued_close = false;
     closing = true;
-    uv_timer_stop(&timeout);
+    uv_timer_stop(timeout);
     if (client) {
         uv_tcp_close_reset(client, cb_uv_close);
     }
 }
 
+void SSLClient::destroy() {
+    crash();
+}
+
 void SSLClient::setContext(ClientContext *context) {
     if (this->context && this->context != context) {
-        this->context->close();
+        this->context->onClose();
+        this->context->onDestroy();
     }
     this->context = context;
 }
@@ -200,7 +198,6 @@ int SSLClient::_send(const char *buf, size_t size) {
         return WOLFSSL_CBIO_ERR_CONN_CLOSE;
     }
     resetTimeout();
-    LOG_INFO("Leak");
 
     // Make sure that the writing buffer has enough space
     uv_buf_t *write_buf = new uv_buf_t;
@@ -220,7 +217,6 @@ int SSLClient::_send(const char *buf, size_t size) {
         _on_write(write_req, 0);
         return written;
     }
-    LOG_INFO("EAGAIN");
     int res = uv_write(write_req, (uv_stream_t *)client, write_buf, 1, cb_uv_write);
 
     return size;
@@ -248,14 +244,22 @@ int SSLClient::_recv(char *buf, size_t size) {
 }
 
 void SSLClient::_on_close() {
-    delete client;
-    client = nullptr;
+    uv_handle_set_data((uv_handle_t *)client, nullptr);
+    destroying = true;
     if (context) {
-        context->onClose();
-        context->close();
+        ClientContext *ctx = context;
         context = nullptr;
+        ctx->onClose();
+        ctx->onDestroy();
+        return;
     }
     server->_notify_close(this);
+}
+
+void SSLClient::_on_destroy_done() {
+    if (destroying) {
+        server->_notify_close(this);
+    }
 }
 
 void SSLClient::_on_receive(ssize_t read, const uv_buf_t *buf) {
@@ -285,7 +289,6 @@ void SSLClient::_on_receive(ssize_t read, const uv_buf_t *buf) {
 }
 
 void SSLClient::_on_write(uv_write_t *req, int status) {
-    LOG_INFO("Leak Closed");
     uv_buf_t *buf = write_requests.at(req);
     delete[] buf->base;
     delete buf;

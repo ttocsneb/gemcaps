@@ -1,5 +1,7 @@
 #include "context.hpp"
 
+#include "main.hpp"
+
 #include <sstream>
 
 using std::ostringstream;
@@ -130,7 +132,7 @@ string GeminiRequest::getRequestName() const {
     return oss.str();
 }
 
-void ContextManager::_close_context(ClientContext *ctx) {
+void ContextManager::_remove_context(ClientContext *ctx) {
     if(contexts.erase(ctx)) {
         delete ctx;
     }
@@ -152,6 +154,7 @@ void ClientContext::onTimeout() {
     getClient()->close();
 }
 
-void ClientContext::close() {
-    manager->_close_context(this);
+void ClientContext::destroy_done() {
+    client->_on_destroy_done();
+    manager->_remove_context(this);
 }

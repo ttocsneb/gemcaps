@@ -32,6 +32,8 @@ void accept(SSLClient *client) {
 }
 
 int main(int argc, char *argv[]) {
+    // prevent sigpipe from killing the server
+    signal(SIGPIPE, SIG_IGN);
     // TODO: deal with missing config file
     string config = "conf.yml";
     if (argc > 1) {

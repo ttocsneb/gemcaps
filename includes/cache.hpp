@@ -34,7 +34,7 @@ typedef void (*CacheReadyCB)(const CachedData &data, Cache *cache, void *arg);
 
 class CacheInfo {
 private:
-    uv_timer_t timer;
+    uv_timer_t *timer;
     std::map<CacheReadyCB, void *> callbacks;
     bool loading;
     bool timer_active;

@@ -24,6 +24,7 @@ class ClientContext;
 class SSLClient {
 private:
     uv_tcp_t *client;
+    uv_timer_t *timeout;
     WOLFSSL *ssl;
     char *buffer = nullptr;
     int buffer_size = 0;
@@ -31,6 +32,7 @@ private:
     int queued_writes = 0;
     bool queued_close = false;
     bool closing = false;
+    bool destroying = false;
 
     SSLServer *server;
 
@@ -38,8 +40,19 @@ private:
 
     std::map<uv_write_t*, uv_buf_t*> write_requests;
 
-    uv_timer_t timeout;
     unsigned int timeout_time;
+protected:
+    void _on_destroy_done();
+
+    /**
+     * Destroy the Client
+     * 
+     * This should be called before deleting the client to cleanly close all asynchronous jobs
+     */
+    void destroy();
+
+    friend ClientContext;
+    friend SSLServer;
 public:
     /**
      * Create the SSL client

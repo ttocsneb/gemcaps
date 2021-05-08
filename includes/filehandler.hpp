@@ -15,8 +15,9 @@ class FileContext : public ClientContext {
 private:
     CacheKey key;
     GeminiRequest request;
+    bool destroying = false;
 public:
-    uv_fs_t req;
+    uv_fs_t *req;
     std::string file;
     std::shared_ptr<FileSettings> settings;
     FileHandler *handler;
@@ -25,10 +26,12 @@ public:
     char filebuf[1024];
     uv_buf_t buf;
     bool processing_cache = false;
+    bool closing = false;
 
     FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::shared_ptr<FileSettings> settings);
     ~FileContext();
 
+    void onDestroy();
     void onClose();
     void onRead();
     void onWrite();
@@ -39,6 +42,8 @@ public:
 
     const CacheKey &getCacheKey() const { return key; }
     const GeminiRequest &getRequest() const { return request; }
+
+    void _closed();
 };
 
 /**

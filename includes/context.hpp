@@ -38,7 +38,7 @@ class ContextManager {
 private:
     std::set<ClientContext*> contexts;
 protected:
-    virtual void _close_context(ClientContext *ctx);
+    virtual void _remove_context(ClientContext *ctx);
     virtual void _add_context(ClientContext *ctx);
     friend ClientContext;
 public:
@@ -51,8 +51,7 @@ private:
     Cache *cache;
     ContextManager *manager;
 protected:
-    void close();
-    friend SSLClient;
+    void destroy_done();
 public:
     std::string buffer;
 
@@ -65,6 +64,7 @@ public:
     SSLClient *getClient() { return client; }
     Cache *getCache() { return cache; }
 
+    virtual void onDestroy() = 0;
     virtual void onClose() = 0;
     virtual void onRead() = 0;
     virtual void onWrite() = 0;

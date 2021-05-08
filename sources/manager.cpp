@@ -29,6 +29,9 @@ public:
     void onClose() {
 
     }
+    void onDestroy() {
+        destroy_done();
+    }
     void onRead() {
         char header[1024];
         SSLClient *client = getClient();
