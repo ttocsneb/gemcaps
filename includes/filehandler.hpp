@@ -17,7 +17,7 @@ private:
     GeminiRequest request;
     bool destroying = false;
 public:
-    uv_fs_t *req;
+    uv_fs_t req;
     std::string file;
     std::shared_ptr<FileSettings> settings;
     FileHandler *handler;

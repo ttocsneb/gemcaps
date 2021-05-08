@@ -311,7 +311,6 @@ FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, 
           handler(handler),
           settings(settings),
           request(request) {
-    req = new uv_fs_t;
     buf.base = filebuf;
     buf.len = sizeof(filebuf);
     ostringstream oss;
@@ -326,12 +325,10 @@ FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, 
     key.hash = key.hash * 31 + str_hash(request.getPath());
     key.hash = key.hash * 31 + str_hash(request.getQuery());
 
-    uv_req_set_data((uv_req_t *)req, this);
+    uv_req_set_data((uv_req_t *)&req, this);
 }
 
 FileContext::~FileContext() {
-    uv_fs_req_cleanup(req);
-    delete req;
 }
 
 void FileContext::onClose() {
@@ -343,10 +340,10 @@ void FileContext::onDestroy() {
         getCache()->cancel(key);
     }
     if (file_fd) {
-        uv_fs_close(getClient()->getLoop(), req, file_fd, on_close);
+        uv_fs_close(getClient()->getLoop(), &req, file_fd, on_close);
         file_fd = 0;
         return;
-    } else {
+    } else if (!closing) {
         _closed();
     }
 }
@@ -395,7 +392,7 @@ void FileContext::handle() {
     file = path.string();
 
     // find the realpath
-    int res = uv_fs_realpath(getClient()->getLoop(), req, path.string().c_str(), got_realpath);
+    int res = uv_fs_realpath(getClient()->getLoop(), &req, path.string().c_str(), got_realpath);
     if (res == UV_ENOSYS) {
         cerr << "Error: Unable to read file due to unsupported operating system!" << endl;
         getClient()->crash();
