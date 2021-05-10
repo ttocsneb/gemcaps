@@ -55,7 +55,8 @@ public:
 class HandlerSettings : public Settings {
 private:
     std::string type;
-    Regex path;
+    std::string path;
+    Regex path_regex;
     std::vector<Regex> rules;
 public:
     virtual void load(YAML::Node &settings);
@@ -71,7 +72,13 @@ public:
      * 
      * @return the path
      */
-    const Regex &getPath() const { return path; }
+    const std::string &getPath() const { return path; }
+    /**
+     * Get the allowed path for the handler
+     * 
+     * @return the path regex
+     */
+    const Regex &getPathRegex() const { return path_regex; }
     /**
      * Get the rules for the handler
      * 

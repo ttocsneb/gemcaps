@@ -15,9 +15,11 @@ class FileContext : public ClientContext {
 private:
     CacheKey key;
     GeminiRequest request;
+    bool destroying = false;
 public:
     uv_fs_t req;
     std::string file;
+    std::string path;
     std::shared_ptr<FileSettings> settings;
     FileHandler *handler;
     uv_file file_fd = 0;
@@ -25,11 +27,12 @@ public:
     char filebuf[1024];
     uv_buf_t buf;
     bool processing_cache = false;
+    bool closing = false;
 
-    FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::shared_ptr<FileSettings> settings);
+    FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::string path, std::shared_ptr<FileSettings> settings);
     ~FileContext();
 
-    void onClose();
+    void onDestroy();
     void onRead();
     void onWrite();
 
@@ -39,6 +42,8 @@ public:
 
     const CacheKey &getCacheKey() const { return key; }
     const GeminiRequest &getRequest() const { return request; }
+
+    void _closed();
 };
 
 /**
@@ -50,9 +55,9 @@ private:
 public:
     FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Regex host, int port)
         : settings(settings),
-          Handler(cache, host, port, settings->getRules()) {}
+          Handler(cache, host, port, settings.get()) {}
 
-    void handle(SSLClient *client, const GeminiRequest &request);
+    void handle(SSLClient *client, const GeminiRequest &request, std::string path);
 };
 
 #endif

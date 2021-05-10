@@ -17,11 +17,11 @@ private:
 public:
     GSGIHandler(Cache *cache, std::shared_ptr<GSGISettings> settings, Regex host, int port)
             : settings(settings),
-            Handler(cache, host, port, settings->getRules()) {
+            Handler(cache, host, port, settings.get()) {
     }
     ~GSGIHandler();
 
-    void handle(SSLClient *client, const GeminiRequest &request);
+    void handle(SSLClient *client, const GeminiRequest &request, std::string pat);
 };
 
 #endif

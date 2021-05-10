@@ -45,21 +45,26 @@ CacheInfo::CacheInfo(uv_loop_t *loop, Cache *manager, CacheKey key)
           timer_active(false),
           ready(false),
           key(key) {
-    uv_handle_set_data((uv_handle_t *)&timer, this);
-    uv_timer_init(loop, &timer);
+    timer = new uv_timer_t;
+    uv_handle_set_data((uv_handle_t *)timer, this);
+    uv_timer_init(loop, timer);
+}
+
+void on_close(uv_handle_t *handle) {
+    delete handle;
 }
 
 CacheInfo::~CacheInfo() {
-    uv_timer_stop(&timer);
+    uv_close((uv_handle_t *)timer, on_close);
 }
 
 void CacheInfo::setTimout(unsigned int time) {
-    uv_timer_start(&timer, cache_info_timer_cb, time, time);
+    uv_timer_start(timer, cache_info_timer_cb, time, time);
     timer_active = true;
 }
 
 void CacheInfo::stopTimer() {
-    uv_timer_stop(&timer);
+    uv_timer_stop(timer);
     timer_active = false;
 }
 
@@ -67,7 +72,7 @@ unsigned int CacheInfo::getTime() const {
     if (!timer_active) {
         return -1;
     }
-    return uv_timer_get_due_in(&timer);
+    return uv_timer_get_due_in(timer);
 }
 
 void CacheInfo::setLoading() {

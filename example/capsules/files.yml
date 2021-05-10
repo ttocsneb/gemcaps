@@ -2,5 +2,8 @@ handlers:
 - type: file
   root: ../files
   path: /
+  rules:
+  - '[^.]*'
+  - '.*\.gmi'
   readDirs: true
   cacheTime: 1

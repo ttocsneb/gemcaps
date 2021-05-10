@@ -12,7 +12,7 @@ GSGIHandler::~GSGIHandler() {
 void GSGIHandler::create() {
 }
 
-void GSGIHandler::handle(SSLClient *client, const GeminiRequest &request) {
+void GSGIHandler::handle(SSLClient *client, const GeminiRequest &request, string path) {
     // Dynamically start the gsgi instance
     // gsgi_process_request(&instance, ssl, request.getRequest().c_str());
 }

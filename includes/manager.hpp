@@ -43,10 +43,10 @@ typedef void(*ContextDestructorCB)(void *ctx);
  */
 class Handler {
 private:
-   Regex host;
-   int port;
-   Cache *cache;
-   std::vector<Regex> rules;
+    HandlerSettings *settings;
+    Regex host;
+    int port;
+    Cache *cache;
 protected:
     /**
      * Get the cache
@@ -61,13 +61,13 @@ public:
      * @param cache cache to use
      * @param host host to match against
      * @param port port to match against
-     * @param rules rules to match against
+     * @param settings settings to use
      */
-    Handler(Cache *cache, Regex host, int port, std::vector<Regex> rules)
+    Handler(Cache *cache, Regex host, int port, HandlerSettings *settings)
         : cache(cache),
           host(host),
           port(port),
-          rules(rules) {}
+          settings(settings) {}
 
     /**
      * Check whether the handler should handle this request
@@ -78,7 +78,7 @@ public:
      * 
      * @return whether the request should handle
      */
-    virtual bool shouldHandle(const std::string &host, int port, const std::string &path);
+    virtual bool shouldHandle(const std::string &host, int port, const std::string &path) { return true; }
 
     /**
      * Handle the requset
@@ -86,7 +86,17 @@ public:
      * @param client SSL Client
      * @param request gemini request
      */
-    virtual void handle(SSLClient *client, const GeminiRequest &request) = 0;
+    virtual void handle(SSLClient *client, const GeminiRequest &request, std::string path) = 0;
+
+    /**
+     * Check if the request should be handled, then start handling the request.
+     * 
+     * @param client SSL Client
+     * @param request gemini request
+     * 
+     * @return whether the request is being handled
+     */
+    bool handleRequest(SSLClient *client, const GeminiRequest &request);
 };
 
 /**

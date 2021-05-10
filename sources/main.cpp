@@ -32,6 +32,10 @@ void accept(SSLClient *client) {
 }
 
 int main(int argc, char *argv[]) {
+#ifndef WIN32
+    // prevent sigpipe from killing the server
+    signal(SIGPIPE, SIG_IGN);
+#endif
     // TODO: deal with missing config file
     string config = "conf.yml";
     if (argc > 1) {
