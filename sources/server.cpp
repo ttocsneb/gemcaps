@@ -169,7 +169,6 @@ void SSLClient::destroy() {
 
 void SSLClient::setContext(ClientContext *context) {
     if (this->context && this->context != context) {
-        this->context->onClose();
         this->context->onDestroy();
     }
     this->context = context;
@@ -249,7 +248,6 @@ void SSLClient::_on_close() {
     if (context) {
         ClientContext *ctx = context;
         context = nullptr;
-        ctx->onClose();
         ctx->onDestroy();
         return;
     }

@@ -65,7 +65,6 @@ public:
     Cache *getCache() { return cache; }
 
     virtual void onDestroy() = 0;
-    virtual void onClose() = 0;
     virtual void onRead() = 0;
     virtual void onWrite() = 0;
     virtual void onTimeout();

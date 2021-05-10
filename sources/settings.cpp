@@ -63,7 +63,7 @@ void HandlerSettings::load(YAML::Node &settings) {
         } else {
             path += '/';
         }
-        string p = path.substr(0, p.length() - 1) + "|" + path + "/.*";
+        string p = path + "|" + path + "/.*";
         path_regex = Regex(p, regex::ECMAScript | regex::optimize);
     }
     if (settings["rules"].IsDefined()) {

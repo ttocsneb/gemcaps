@@ -26,9 +26,6 @@ public:
     RequestContext(Manager *manager, SSLClient *client, Cache *cache)
         : ClientContext(manager, client, cache),
           manager(manager) {}
-    void onClose() {
-
-    }
     void onDestroy() {
         destroy_done();
     }
@@ -174,7 +171,7 @@ void Manager::handle(SSLClient *client, GeminiRequest request) {
             return;
         }
     }
-    string error = "41 There is no server available to process your request\r\n";
+    static const string error("50 There is no server available to process your request\r\n");
     client->write(error.c_str(), error.length());
     client->close();
     return;

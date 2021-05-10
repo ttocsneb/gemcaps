@@ -33,7 +33,6 @@ public:
     ~FileContext();
 
     void onDestroy();
-    void onClose();
     void onRead();
     void onWrite();
 

@@ -332,9 +332,6 @@ FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, 
 FileContext::~FileContext() {
 }
 
-void FileContext::onClose() {
-}
-
 void FileContext::onDestroy() {
     destroying = true;
     if (processing_cache) {
