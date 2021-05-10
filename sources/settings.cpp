@@ -117,7 +117,17 @@ void FileSettings::load(YAML::Node &settings) {
         if (item.find(p.preferred_separator, item.length() - 1) == string::npos) {
 			item += p.preferred_separator;
         }
-        item = item.substr(0, item.length() - 1) + "|" + item + ".*";
+		int n = 1;
+		if (p.preferred_separator == '\\') {
+			n = 2;
+			// Replace all backslashes with a double backslash to prevent regex from catching it
+			size_t pos = 0;
+			while ((pos = item.find("\\", pos)) != string::npos) {
+				item.replace(pos, 1, "\\\\");
+				pos += 2;
+			}
+		}
+        item = item.substr(0, item.length() - n) + "|" + item + ".*";
         LOG_DEBUG("Allowed Dir: " << item);
         allowedDirs.push_back(Regex(item, regex::ECMAScript | regex::optimize));
         uv_fs_req_cleanup(&req);

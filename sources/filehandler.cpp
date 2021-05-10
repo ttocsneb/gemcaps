@@ -50,7 +50,7 @@ void got_realpath(uv_fs_t *req) {
         uv_fs_req_cleanup(req);
         // TODO: Real path
         // Check if the handler has permissions to read the file
-        LOG_DEBUG("Real path: " << realPath);
+        LOG_DEBUG("Real path: " << realpath);
         bool valid = true;
         if (!context->settings->getAllowedDirs().empty()) {
             valid = false;
@@ -118,7 +118,6 @@ void got_stat(uv_fs_t *req) {
 
     const string &path = context->getRequest().getPath();
     size_t final_backslash = path.find('/', path.length() - 1);
-    LOG_DEBUG("mode: " << statbuf->st_mode);
     if (statbuf.st_mode & S_IFDIR) {
         // The file is a directory
         if (final_backslash == string::npos) {
