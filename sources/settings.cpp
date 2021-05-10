@@ -57,13 +57,14 @@ void Settings::loadFile(const string &path) {
 void HandlerSettings::load(YAML::Node &settings) {
     type = settings["type"].as<string>();
     if (settings["path"].IsDefined()) {
-        string p = settings["path"].as<string>();
-        if (p.find('/', p.length() - 1) != string::npos) {
-            p = p.substr(0, p.length() - 1) + "|" + p + ".*";
+        path = settings["path"].as<string>();
+        if (path.find('/', path.length() - 1) != string::npos) {
+            path = path.substr(0, path.length() - 1);
         } else {
-            p = p + ".*";
+            path += '/';
         }
-        path = Regex(p, regex::ECMAScript | regex::optimize);
+        string p = path.substr(0, p.length() - 1) + "|" + path + "/.*";
+        path_regex = Regex(p, regex::ECMAScript | regex::optimize);
     }
     if (settings["rules"].IsDefined()) {
         rules = settings["rules"].as<vector<Regex>>();

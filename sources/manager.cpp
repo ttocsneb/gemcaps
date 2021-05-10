@@ -66,17 +66,32 @@ public:
     }
 };
 
-bool Handler::shouldHandle(const string &host, int port, const string &path) {
+bool Handler::handleRequest(SSLClient *client, const GeminiRequest &request) {
+    const string &host = request.getHost();
+    int port = request.getPort();
+    const string &path = request.getPath();
     if (!(this->port == port && this->host.match(host))) {
         return false;
     }
-    if (rules.empty()) {
-        return true;
+    if (!settings->getPathRegex().match(path)) {
+        return false;
     }
-    for (const auto &rule : rules) {
-        if (rule.match(path)) {
-            return true;
+    string new_path = path.substr(settings->getPath().length());
+    if (!settings->getRules().empty()) {
+        bool valid = false;
+        for (const auto &rule : settings->getRules()) {
+            if (rule.match(new_path)) {
+                valid = true;
+                break;
+            }
         }
+        if (!valid) {
+            return false;
+        }
+    }
+    if (shouldHandle(host, port, path)) {
+        handle(client, request, new_path);
+        return true;
     }
     return false;
 }
@@ -155,8 +170,7 @@ void Manager::handle(SSLClient *client, GeminiRequest request) {
     const string &path = request.getPath();
     int port = request.getPort();
     for (shared_ptr<Handler> handler : handlers) {
-        if (handler->shouldHandle(host, port, path)) {
-            handler->handle(client, request);
+        if (handler->handleRequest(client, request)) {
             return;
         }
     }

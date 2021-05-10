@@ -306,11 +306,12 @@ void on_close(uv_fs_t *req) {
 
 ////////// FileContext //////////
 
-FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::shared_ptr<FileSettings> settings)
+FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, string path, std::shared_ptr<FileSettings> settings)
         : ClientContext(handler, client, cache),
           handler(handler),
           settings(settings),
-          request(request) {
+          request(request),
+          path(path) {
     buf.base = filebuf;
     buf.len = sizeof(filebuf);
     ostringstream oss;
@@ -318,10 +319,11 @@ FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, 
     if (port == 0) {
         port = 1965;
     }
-    key.name = request.getPath();
+    key.name = path;
     hash<string> str_hash;
     hash<FileHandler*> ctx_hash;
     key.hash = ctx_hash(handler);
+    key.hash = key.hash * 31 + str_hash(path);
     key.hash = key.hash * 31 + str_hash(request.getPath());
     key.hash = key.hash * 31 + str_hash(request.getQuery());
 
@@ -382,17 +384,16 @@ void FileContext::handle() {
     processing_cache = true;
 
     // Find the path on file
-    fs::path path(settings->getRoot());
-    string p = getRequest().getPath();
-    if (p.rfind('/', 0) == 0) {
-        p = p.substr(1);
+    fs::path p(settings->getRoot());
+    if (path.rfind('/', 0) == 0) {
+        path = path.substr(1);
     }
-    path /= p;
-    path = path.make_preferred();
-    file = path.string();
+    p /= path;
+    p = p.make_preferred();
+    file = p.string();
 
     // find the realpath
-    int res = uv_fs_realpath(getClient()->getLoop(), &req, path.string().c_str(), got_realpath);
+    int res = uv_fs_realpath(getClient()->getLoop(), &req, p.string().c_str(), got_realpath);
     if (res == UV_ENOSYS) {
         cerr << "Error: Unable to read file due to unsupported operating system!" << endl;
         getClient()->crash();
@@ -419,8 +420,8 @@ CachedData FileContext::createCache(int response, string meta) {
 
 ////////// FileHandler //////////
 
-void FileHandler::handle(SSLClient *client, const GeminiRequest &request) {
-    FileContext *context = new FileContext(this, client, getCache(), request, settings);
+void FileHandler::handle(SSLClient *client, const GeminiRequest &request, string path) {
+    FileContext *context = new FileContext(this, client, getCache(), request, path, settings);
     _add_context(context);
     client->setContext(context);
 

@@ -19,6 +19,7 @@ private:
 public:
     uv_fs_t req;
     std::string file;
+    std::string path;
     std::shared_ptr<FileSettings> settings;
     FileHandler *handler;
     uv_file file_fd = 0;
@@ -28,7 +29,7 @@ public:
     bool processing_cache = false;
     bool closing = false;
 
-    FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::shared_ptr<FileSettings> settings);
+    FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, std::string path, std::shared_ptr<FileSettings> settings);
     ~FileContext();
 
     void onDestroy();
@@ -55,9 +56,9 @@ private:
 public:
     FileHandler(Cache *cache, std::shared_ptr<FileSettings> settings, Regex host, int port)
         : settings(settings),
-          Handler(cache, host, port, settings->getRules()) {}
+          Handler(cache, host, port, settings.get()) {}
 
-    void handle(SSLClient *client, const GeminiRequest &request);
+    void handle(SSLClient *client, const GeminiRequest &request, std::string path);
 };
 
 #endif
