@@ -1,0 +1,146 @@
+# Purpose
+
+The Gemini Server Gateway Interface (GSGI) is meant to be a standard portable interface between the server and the application. The main advantage to this would be to allow high level long lived applications to handle requests through a high performance server without the need to write your own server.
+
+CGI based applications have the inherent disadvantage of having to spin-up a new process for each request.
+
+# Specification
+
+The GSGI interface has two sides: The server and application. The server will send requests through the first pipe to the application. The application will then process the request and send its response back to the server in a second pipe.
+
+## Initialization
+
+The server MUST initialize the application. When it does, it will supply the application with settings through the environment variables. The server MUST also create two pipes that are shared between only the server and the application. Communication between the server and application will not be encrypted, so it is important that the pipes are not shared with any other processes.
+
+## Settings
+
+In the settings, there are several variables that are garenteed to be present:
+
+- REQUEST_PIPE
+- RESPONSE_PIPE
+
+### REQUEST_PIPE
+
+The REQUEST_PIPE variable will store the file descriptor that the request pipe is on.
+
+### RESPONSE_PIPE
+
+The RESPONSE_PIPE variable will store the file descriptor that the response pipe is on.
+
+## Pipes
+
+There are two pipes that are shared between the server and application: request, and response. Both pipes are one way pipes. The server will send requests to the application in the request pipe. The application will send responses to the server in the response pipe.
+
+Only one message can be sent at a time, but a full transaction can be sent in any order. Because of this, each transaction has a unique id for it.
+
+A message begins with the character 0x02 (start of text).
+
+## Messages
+
+```
+  message = STX *( header ) LF [ body ] ETX
+  header  = name ":" value LF
+  name    = "\w+"
+  value   = "[^LF]+"
+  body    = ".{length}[^LF]*" <length is the field in the headers>
+  STX     = 0x02
+  ETX     = 0x03
+```header rules
+
+### length field
+
+Adding the length field to the headers will cause the body to ignore ETX characters until after the length has past. To help ensure robustness, the length parameter can be the absolute length in bytes of the message as to not rely on the ETX character in the event that too few bytes are sent causing future messages to be corrupted.
+
+## Requests
+
+There are several fields that may be included in a request message:
+
+- id
+- host
+- port
+- path
+- query
+
+### id field
+
+The id of a message MUST be unique for all requests during the lifetime of the process.
+
+### host field
+
+The host is the host given in the gemini request.
+
+### port field
+
+The port is the port that was given in the gemini request. If the port field is absent, then it can be assumed that the port was 1965.
+
+### path field
+
+The path is the path that was given in the gemini request. If the path field is absent, then it can be assumed that the path is empty.
+
+### query field
+
+The query is the query that was given in the gemini request. If the query field is absent, then it can be assumed that the query is empty.
+
+### body
+
+The body of the request message will contain the client certificate if it was provided by the client. I don't yet know enough to know what kind of data to expect from peer authentication, but I would expect that I should either send the entire certificate to the application, or only its fingerprint.
+
+### request example
+
+```
+id: 5
+host: foo.bar
+path: /
+
+``` GSGI Request
+
+## Response Messages
+
+- id
+- code
+- meta
+- cache
+
+### id field
+
+The id of the transaction. This MUST match the id of the coresponding request message.
+
+### code field
+
+The response code of the response.
+
+### meta field
+
+The meta field of the response.
+
+### cache field
+
+This is an optional field that the server MAY choose to ignore. It describes how long the server should hold onto the response (in seconds) before discarding it. If the cache field is not provided, then no cache will be made. A value of 0 indicates an infinite cache time.
+
+### body
+
+The content of the response.
+
+### response example
+
+```
+id: 5
+code: 20
+meta: text/gemini
+cache: 300
+length: 13
+
+Hello World!
+
+```
+
+### example gemini request/response
+
+This request and response is what the client should see.
+
+```
+gemini://foo.bar/
+20 text/gemini
+Hello World!
+
+```
