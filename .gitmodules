@@ -1,6 +1,3 @@
-[submodule "lib/benstools"]
-	path = lib/benstools
-	url = git@bitbucket.org:ttocsneb/benstools.git
 [submodule "lib/yaml-cpp"]
 	path = lib/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp.git
@@ -13,3 +10,6 @@
 [submodule "lib/googletest"]
 	path = lib/googletest
 	url = https://github.com/google/googletest
+[submodule "lib/parallel-hashmap"]
+	path = lib/parallel-hashmap
+	url = https://github.com/greg7mdp/parallel-hashmap.git

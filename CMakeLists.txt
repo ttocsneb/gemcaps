@@ -4,8 +4,14 @@ project(GemCaps
     VERSION 0.1.0
 )
 
-file(GLOB_RECURSE
-    sources ${PROJECT_SOURCE_DIR}/sources/*
+# file(GLOB_RECURSE
+#     sources ${PROJECT_SOURCE_DIR}/sources/*
+# )
+
+set(sources
+    ${PROJECT_SOURCE_DIR}/sources/server.cpp
+    ${PROJECT_SOURCE_DIR}/sources/util.cpp
+    ${PROJECT_SOURCE_DIR}/sources/uvutils.cpp
 )
 
 SET(CMAKE_CXX_STANDARD 17)
@@ -18,11 +24,17 @@ add_executable(gemcaps
     ${sources}
 )
 
-target_include_directories(gemcaps PUBLIC
+target_include_directories(gemcaps PRIVATE
     ${PROJECT_SOURCE_DIR}/includes
+)
+
+target_include_directories(gemcaps PUBLIC
+    ${PROJECT_SOURCE_DIR}/shared
     ${PROJECT_SOURCE_DIR}/lib/yaml-cpp/include
     ${PROJECT_SOURCE_DIR}/lib/libuv/include
     ${PROJECT_SOURCE_DIR}/lib/wolfssl
+    ${PROJECT_SOURCE_DIR}/lib/rll/include/
+    ${PROJECT_SOURCE_DIR}/lib/parallel-hashmap/
 )
 
 target_link_libraries(gemcaps PUBLIC
@@ -34,47 +46,12 @@ target_link_libraries(gemcaps PUBLIC
 set_target_properties(uv PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 	${PROJECT_BINARY_DIR}/bin
 )
+set_target_properties(yaml-cpp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
+set_target_properties(wolfssl PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
 set_target_properties(gemcaps PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 	${PROJECT_BINARY_DIR}/bin
 )
-
-
-
-include(CTest)
-
-if (WIN32)
-else()
-if(CMAKE_TESTING_ENABLED)
-    list(FILTER sources EXCLUDE REGEX
-        ".*main.cpp$"
-    )
-    file(GLOB_RECURSE
-        tests ${PROJECT_SOURCE_DIR}/test/*
-    )
-
-    add_subdirectory(${PROJECT_SOURCE_DIR}/lib/googletest)
-
-    add_executable(test_gemcaps
-        ${sources}
-        ${tests}
-    )
-    target_include_directories(test_gemcaps PUBLIC
-        ${PROJECT_SOURCE_DIR}/includes
-        ${PROJECT_SOURCE_DIR}/lib/yaml-cpp/include
-        ${PROJECT_SOURCE_DIR}/lib/libuv/include
-        ${PROJECT_SOURCE_DIR}/lib/wolfssl
-        ${PROJECT_SOURCE_DIR}/lib/googletest/include
-    )
-    target_link_libraries(test_gemcaps PUBLIC
-        yaml-cpp
-        wolfssl
-        uv
-        gtest
-        gtest_main
-    )
-
-    add_test(NAME test_gemcaps
-        COMMAND ${PROJECT_BINARY_DIR}/test_gemcaps
-    )
-endif()
-endif()
