@@ -14,15 +14,16 @@
 
 
 class SSLServer;
+class SSLClient;
 class ClientContext;
 
 
 class ClientContext {
 public:
-    virtual void onClose() = 0;
-    virtual void onRead() = 0;
-    virtual void onWrite() = 0;
-    virtual void onTimeout() = 0;
+    virtual void onClose(SSLClient *client) = 0;
+    virtual void onRead(SSLClient *client) = 0;
+    virtual void onWrite(SSLClient *client) = 0;
+    virtual void onTimeout(SSLClient *client) = 0;
 };
 
 
@@ -45,9 +46,6 @@ private:
 
     unsigned long timeout_time;
 
-    static int __send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept;
-    static int __recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept;
-
     static void __on_recv(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) noexcept;
     static void __on_send(uv_write_t *req, int status) noexcept;
     static void __on_close(uv_handle_t *handle) noexcept;
@@ -55,10 +53,13 @@ private:
 
     phmap::flat_hash_map<uv_write_t *, uv_buf_t> write_requests;
 protected:
-    SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl);
+    int _send(const char *buf, int size) noexcept;
+    int _recv(int size, char *buf) noexcept;
+    int _ready() const noexcept;
 
     friend SSLServer;
 public:
+    SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl);
     ~SSLClient() noexcept;
 
     uv_loop_t *getLoop() const noexcept;
@@ -76,9 +77,6 @@ public:
 
     bool wants_read() const noexcept;
     bool is_open() const noexcept;
-    int get_error() const noexcept;
-
-    std::string get_error_string() const noexcept;
 
     void close() noexcept;
     void crash() noexcept;
@@ -89,7 +87,7 @@ public:
 
 class ServerContext {
 public:
-    virtual void on_accept(SSLClient *client) = 0;
+    virtual void on_accept(SSLServer *server, SSLClient *client) = 0;
 };
 
 class SSLServer {
@@ -101,20 +99,22 @@ private:
 
     phmap::flat_hash_set<SSLClient *> clients;
 
-    static void __on_accept(uv_tcp_t *conn);
+    static void __on_accept(uv_stream_t *stream, int status) noexcept;
+
+    static int __send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept;
+    static int __recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept;
 protected:
-    void _on_client_close(SSLClient *client);
+    void _on_client_close(SSLClient *client) noexcept;
 
     friend SSLClient;
 public:
-    SSLServer(std::shared_ptr<ServerContext> context)
-        : context(context) {}
+    ~SSLServer() noexcept;
 
-    ~SSLServer();
+    void load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key) noexcept;
 
-    void load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key);
+    void setContext(std::shared_ptr<ServerContext> context) { this->context = context; }
 
-    bool isLoaded() const noexcept;
+    bool isLoaded() const noexcept { return wolfssl != nullptr; }
 };
 
 #endif

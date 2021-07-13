@@ -1,6 +1,11 @@
 #include "server.hpp"
 
+#include <iostream>
+
 #include "uvutils.hpp"
+
+using std::cerr;
+using std::endl;
 
 
 ReusableAllocator<uv_tcp_t> tcp_allocator;
@@ -9,17 +14,18 @@ void on_timeout_close(uv_handle_t *handle) {
     timer_allocator.deallocate((uv_timer_t *)handle);
 }
 
+void on_tcp_close(uv_handle_t *handle) {
+    tcp_allocator.deallocate((uv_tcp_t *)handle);
+}
 
-int SSLClient::__send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
-    SSLClient *client = static_cast<SSLClient *>(ctx);
-    if (!client) {
-        return WOLFSSL_CBIO_ERR_GENERAL;
-    }
+////////////////////////////////////////////////////////////////////////////////
+//
+// Client
+//
+////////////////////////////////////////////////////////////////////////////////
 
-    if (!client->is_open()) {
-        return WOLFSSL_CBIO_ERR_CONN_CLOSE;
-    }
-    client->resetTimeout();
+int SSLClient::_send(const char *buf, int size) noexcept {
+    resetTimeout();
 
     uv_buf_t buffer = buffer_allocate();
 
@@ -28,33 +34,26 @@ int SSLClient::__send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
     buffer.len = len;
 
     uv_write_t *req = write_req_allocator.allocate();
-    client->write_requests.insert_or_assign(req, buffer);
-    ++client->queued_writes;
+    write_requests.insert_or_assign(req, buffer);
+    ++queued_writes;
 
-    int written = uv_try_write((uv_stream_t *)client->client, &buffer, 1);
+    int written = uv_try_write((uv_stream_t *)client, &buffer, 1);
     if (written > 0) {
-        req->handle = (uv_stream_t *)client->client;
+        req->handle = (uv_stream_t *)client;
         req->cb = __on_send;
         __on_send(req, written);
+        return written;
     }
-    int res = uv_write(req, (uv_stream_t *)client->client, &buffer, 1, __on_send);
+    int res = uv_write(req, (uv_stream_t *)client, &buffer, 1, __on_send);
     return len;
 }
 
-int SSLClient::__recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
-    SSLClient *client = static_cast<SSLClient *>(ctx);
-    if (!client) {
-        return WOLFSSL_CBIO_ERR_GENERAL;
-    }
+int SSLClient::_recv(int size, char *buf) noexcept {
+    return buffer.read(size, buf);
+}
 
-    if (client->buffer.ready() == 0) {
-        if (!client->is_open()) {
-            return WOLFSSL_CBIO_ERR_CONN_CLOSE;
-        }
-        return WOLFSSL_CBIO_ERR_WANT_READ;
-    }
-
-    return client->buffer.read(size, buf);
+int SSLClient::_ready() const noexcept {
+    return buffer.ready();
 }
 
 void alloc_recv_buf(uv_handle_t *handle, size_t suggested_size, uv_buf_t *buf) {
@@ -85,7 +84,7 @@ void SSLClient::__on_recv(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
 
     if (client->context) {
         do {
-            client->context->onRead();
+            client->context->onRead(client);
         } while (client->is_open() && client->hasData() && !wolfSSL_want_read(client->ssl));
     }
 }
@@ -109,7 +108,7 @@ void SSLClient::__on_send(uv_write_t *req, int status) noexcept {
     }
     if (client->queued_writes == 0) {
         if (client->context) {
-            client->context->onWrite();
+            client->context->onWrite(client);
         }
         if (client->queued_close) {
             client->close();
@@ -128,7 +127,7 @@ void SSLClient::__on_close(uv_handle_t *handle) noexcept {
     handle->data = nullptr;
 
     if (client->context) {
-        client->context->onClose();
+        client->context->onClose(client);
     }
 
     client->client = nullptr;
@@ -152,8 +151,6 @@ SSLClient::SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl)
           client(client),
           ssl(ssl),
           timeout(timer_allocator.allocate()) {
-    wolfSSL_SetIOReadCtx(ssl, this);
-    wolfSSL_SetIOWriteCtx(ssl, this);
     uv_timer_init(client->loop, timeout);
     client->data = this;
     timeout->data = this;
@@ -212,6 +209,14 @@ int SSLClient::write(const void *data, size_t size) noexcept {
     return wolfSSL_write(ssl, data, size);
 }
 
+bool SSLClient::wants_read() const noexcept {
+    return wolfSSL_want_read(ssl);
+}
+
+bool SSLClient::is_open() const noexcept {
+    return client != nullptr && closing != true;
+}
+
 void SSLClient::close() noexcept {
     if (queued_writes > 0 && !queued_close) {
         queued_close = true;
@@ -234,5 +239,129 @@ void SSLClient::crash() noexcept {
     }
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// Server
+//
+////////////////////////////////////////////////////////////////////////////////
 
-// TODO Write Server
+void SSLServer::__on_accept(uv_stream_t *stream, int status) noexcept {
+    SSLServer *server = static_cast<SSLServer *>(stream->data);
+    if (!server) {
+        return;
+    }
+
+    uv_tcp_t *conn = tcp_allocator.allocate();
+    uv_tcp_init(stream->loop, conn);
+    if (uv_accept(stream, (uv_stream_t *)conn) != 0) {
+        uv_close((uv_handle_t *)conn, on_tcp_close);
+        return;
+    }
+
+    WOLFSSL *ssl = wolfSSL_new(server->wolfssl);
+    SSLClient *client = *server->clients.insert(new SSLClient(server, conn, ssl)).first;
+    wolfSSL_SetIOReadCtx(ssl, client);
+    wolfSSL_SetIOWriteCtx(ssl, client);
+    server->context->on_accept(server, client);
+}
+
+int SSLServer::__send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
+    SSLClient *client = static_cast<SSLClient *>(ctx);
+    if (!client) {
+        return WOLFSSL_CBIO_ERR_GENERAL;
+    }
+
+    if (!client->is_open()) {
+        return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+    }
+
+    return client->_send(buf, size);
+}
+
+int SSLServer::__recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
+    SSLClient *client = static_cast<SSLClient *>(ctx);
+    if (!client) {
+        return WOLFSSL_CBIO_ERR_GENERAL;
+    }
+
+    if (client->_ready() == 0) {
+        if (!client->is_open()) {
+            return WOLFSSL_CBIO_ERR_CONN_CLOSE;
+        }
+        return WOLFSSL_CBIO_ERR_WANT_READ;
+    }
+    return client->_recv(size, buf);
+
+    return client->buffer.read(size, buf);
+}
+
+void SSLServer::_on_client_close(SSLClient *client) noexcept {
+    auto found = clients.find(client);
+    if (found == clients.end()) {
+        cerr << "Warn [SSLServer::_on_client_close] An invalid pointer was passed" << endl;
+        return;
+    }
+    clients.erase(found);
+    delete client;
+}
+
+
+SSLServer::~SSLServer() noexcept {
+    if (wolfssl != nullptr) {
+        wolfSSL_CTX_free(wolfssl);
+    }
+    if (server != nullptr) {
+        uv_close((uv_handle_t *)server, on_tcp_close);
+    }
+    for (SSLClient *client : clients) {
+        delete client;
+    }
+}
+
+void SSLServer::load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key) noexcept {
+    if (wolfssl != nullptr) {
+        wolfSSL_CTX_free(wolfssl);
+    }
+
+    wolfssl = wolfSSL_CTX_new(wolfTLSv1_2_server_method());
+    if (wolfssl == nullptr) {
+        return;
+    }
+
+    // Load the certificates
+    if (wolfSSL_CTX_use_certificate_file(wolfssl, cert.c_str(), SSL_FILETYPE_PEM) != SSL_SUCCESS) {
+        cerr << "Error [SSLServer::load] Could not load certificate file '" << cert << "'" << endl;
+        wolfSSL_CTX_free(wolfssl);
+        wolfssl = nullptr;
+        return;
+    }
+    if (wolfSSL_CTX_use_PrivateKey_file(wolfssl, key.c_str(), SSL_FILETYPE_PEM) != SSL_SUCCESS) {
+        cerr << "Error [SSLServer::load] Could not load key file '" << key << "'" << endl;
+        wolfSSL_CTX_free(wolfssl);
+        wolfssl = nullptr;
+        return;
+    }
+
+    wolfSSL_CTX_SetIORecv(wolfssl, __recv);
+    wolfSSL_CTX_SetIOSend(wolfssl, __send);
+
+    if (server != nullptr) {
+        uv_close((uv_handle_t *)server, on_tcp_close);
+    }
+    server = tcp_allocator.allocate();
+    uv_tcp_init(loop, server);
+    server->data = this;
+
+    sockaddr_in addr;
+    uv_ip4_addr(host.c_str(), port, &addr);
+    uv_tcp_bind(server, (const sockaddr *)&addr, 0);
+    int errors = uv_listen((uv_stream_t *)server, 5, __on_accept);
+    if (errors != 0) {
+        cerr << "Error [SSLServer::load] Could not listen on '" << host << ":" << port << ":" << endl;
+        wolfSSL_CTX_free(wolfssl);
+        wolfssl = nullptr;
+        uv_close((uv_handle_t *)server, on_tcp_close);
+        server = nullptr;
+        return;
+    }
+}
