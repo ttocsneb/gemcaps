@@ -1,4 +1,4 @@
-#include "util.hpp"
+#include "gemcaps/util.hpp"
 
 #include <string.h>
 
@@ -10,6 +10,9 @@ BufferPipe::~BufferPipe() {
 }
 
 void BufferPipe::write(const char *buf, size_t len) noexcept {
+    if (is_closed()) {
+        return;
+    }
     if (length + len > size) {
         // Resize the buffer
         char *newbuf = new char[length + len];
@@ -28,6 +31,8 @@ void BufferPipe::write(const char *buf, size_t len) noexcept {
     // Write the buf to the buffer
     memcpy(buffer + start + length, buf, len);
     length += len;
+
+    notify();
 }
 
 size_t BufferPipe::read(size_t len, char *buf) noexcept {

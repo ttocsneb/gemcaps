@@ -13,133 +13,57 @@
 
 #include <yaml-cpp/yaml.h>
 
+#include <parallel_hashmap/phmap.h>
+
 #include "cache.hpp"
-#include "settings.hpp"
-#include "server.hpp"
-#include "context.hpp"
+#include "gemcaps/settings.hpp"
+#include "gemcaps/server.hpp"
+#include "gemcaps/handler.hpp"
 
-#define RES_INPUT 10
-#define RES_SENSITIVE_INPUT 11
-#define RES_SUCCESS 20
-#define RES_REDIRECT_TEMP 30
-#define RES_REDIRECT_PERM 31
-#define RES_FAIL_TEMP 40
-#define RES_SERVER_UNAVAIL 41
-#define RES_ERROR_CGI 42
-#define RES_ERROR_PROXY 43
-#define RES_SLOW_DOWN 44
-#define RES_FAIL_PERM 50
-#define RES_NOT_FOUND 51
-#define RES_GONE 52
-#define RES_BAD_REQUEST 59
-#define RES_CERT_REQUIRED 60
-#define RES_CERT_NOT_AUTH 61
-#define RES_CERT_NOT_VALID 62
 
-typedef void(*ContextDestructorCB)(void *ctx);
+inline const std::string NAME = "name";
 
-/**
- * The base class for all handlers
- */
-class Handler {
+
+class Manager : public ServerContext, public ClientContext, public IBufferPipeObserver {
 private:
-    HandlerSettings *settings;
-    Regex host;
-    int port;
-    Cache *cache;
-protected:
-    /**
-     * Get the cache
-     * 
-     * @return cache
-     */
-    Cache *getCache() const { return cache; }
-public:
-    /**
-     * Create a new handler
-     * 
-     * @param cache cache to use
-     * @param host host to match against
-     * @param port port to match against
-     * @param settings settings to use
-     */
-    Handler(Cache *cache, Regex host, int port, HandlerSettings *settings)
-        : cache(cache),
-          host(host),
-          port(port),
-          settings(settings) {}
-
-    /**
-     * Check whether the handler should handle this request
-     * 
-     * @param host requested host
-     * @param port received port
-     * @param path requested path
-     * 
-     * @return whether the request should handle
-     */
-    virtual bool shouldHandle(const std::string &host, int port, const std::string &path) { return true; }
-
-    /**
-     * Handle the requset
-     * 
-     * @param client SSL Client
-     * @param request gemini request
-     */
-    virtual void handle(SSLClient *client, const GeminiRequest &request, std::string path) = 0;
-
-    /**
-     * Check if the request should be handled, then start handling the request.
-     * 
-     * @param client SSL Client
-     * @param request gemini request
-     * 
-     * @return whether the request is being handled
-     */
-    bool handleRequest(SSLClient *client, const GeminiRequest &request);
-};
-
-/**
- * Directs requests to the proper handler
- */
-class Manager : public ContextManager {
-public:
-    struct ServerSettings {
-        int port;
-        std::string cert;
-        std::string key;
-        std::string listen;
-
-        bool operator<(const ServerSettings &rhs) const;
+    struct ClientData {
+        Request request;
+        BufferPipe body;
     };
-private:
+
     std::vector<std::shared_ptr<Handler>> handlers;
-    std::set<ServerSettings> servers;
-    Cache cache;
-    unsigned int timeout;
+    phmap::flat_hash_map<std::string, std::shared_ptr<SSLServer>> servers;
 
-    void loadCapsule(const std::string &filename, const std::string &file);
+    phmap::flat_hash_map<SSLClient *, std::unique_ptr<ClientData>> requests;
 public:
-    Manager(uv_loop_t *loop, unsigned int max_cache = 0, unsigned int timeout = 5000)
-        : cache(loop, max_cache),
-          timeout(timeout) {}
-    /**
-     * Load all handlers in the specified directory
-     * 
-     * @param directory directory with all the handlers
-     */
-    void load(const std::string &directory);
 
-    void handle(SSLClient *client);
     /**
-     * Handle the request
+     * Load the servers into memory
      * 
-     * @param client client
-     * @param request request header
+     * @param config_dir directory of server configs
      */
-    void handle(SSLClient *client, GeminiRequest request);
+    void loadServers(std::string config_dir) noexcept;
+    /**
+     * Load the handlers into memory
+     * 
+     * @param config_dir directory of handler configs
+     */
+    void loadHandlers(std::string config_dir) noexcept;
+    /**
+     * Start the servers
+     */
+    void startServers() noexcept;
 
-    const std::set<ServerSettings> &getServers() const { return servers; }
+    // Overrides ServerContext
+    void on_accept(SSLServer *server, SSLClient *client) noexcept;
+
+    // Override ClientContext
+    void on_close(SSLClient *client) noexcept;
+    void on_read(SSLClient *client) noexcept;
+    void on_write(SSLClient *client) noexcept;
+
+    // Override IBufferPipeObserver
+    void on_buffer_write(IBufferPipe *buffer) noexcept;
 };
 
 #endif

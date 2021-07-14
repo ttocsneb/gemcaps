@@ -4,15 +4,15 @@ project(GemCaps
     VERSION 0.1.0
 )
 
-# file(GLOB_RECURSE
-#     sources ${PROJECT_SOURCE_DIR}/sources/*
-# )
-
-set(sources
-    ${PROJECT_SOURCE_DIR}/sources/server.cpp
-    ${PROJECT_SOURCE_DIR}/sources/util.cpp
-    ${PROJECT_SOURCE_DIR}/sources/uvutils.cpp
+file(GLOB_RECURSE
+    sources ${PROJECT_SOURCE_DIR}/sources/*
 )
+
+# set(sources
+#     ${PROJECT_SOURCE_DIR}/sources/server.cpp
+#     ${PROJECT_SOURCE_DIR}/sources/util.cpp
+#     ${PROJECT_SOURCE_DIR}/sources/uvutils.cpp
+# )
 
 SET(CMAKE_CXX_STANDARD 17)
 

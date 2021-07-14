@@ -3,7 +3,7 @@
 
 #include <uv.h>
 
-#include "util.hpp"
+#include "gemcaps/util.hpp"
 
 inline ReusableAllocator<uv_write_t> write_req_allocator;
 inline ReusableAllocator<uv_timer_t> timer_allocator;

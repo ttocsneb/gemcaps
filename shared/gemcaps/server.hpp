@@ -10,7 +10,7 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include "util.hpp"
+#include "gemcaps/util.hpp"
 
 
 class SSLServer;
@@ -20,10 +20,9 @@ class ClientContext;
 
 class ClientContext {
 public:
-    virtual void onClose(SSLClient *client) = 0;
-    virtual void onRead(SSLClient *client) = 0;
-    virtual void onWrite(SSLClient *client) = 0;
-    virtual void onTimeout(SSLClient *client) = 0;
+    virtual void on_close(SSLClient *client) = 0;
+    virtual void on_read(SSLClient *client) = 0;
+    virtual void on_write(SSLClient *client) = 0;
 };
 
 
@@ -51,7 +50,7 @@ private:
     static void __on_close(uv_handle_t *handle) noexcept;
     static void __on_timeout(uv_timer_t *timeout) noexcept;
 
-    phmap::flat_hash_map<uv_write_t *, uv_buf_t> write_requests;
+    phmap::flat_hash_map<uv_write_t *, std::vector<uv_buf_t>> write_requests;
 protected:
     int _send(const char *buf, int size) noexcept;
     int _recv(int size, char *buf) noexcept;
@@ -111,6 +110,8 @@ public:
     ~SSLServer() noexcept;
 
     void load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key) noexcept;
+
+    void listen() noexcept;
 
     void setContext(std::shared_ptr<ServerContext> context) { this->context = context; }
 

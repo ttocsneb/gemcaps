@@ -1,8 +1,10 @@
-#include "server.hpp"
+#include "gemcaps/server.hpp"
 
 #include <iostream>
 
-#include "uvutils.hpp"
+#include "gemcaps/uvutils.hpp"
+
+using std::vector;
 
 using std::cerr;
 using std::endl;
@@ -27,25 +29,38 @@ void on_tcp_close(uv_handle_t *handle) {
 int SSLClient::_send(const char *buf, int size) noexcept {
     resetTimeout();
 
-    uv_buf_t buffer = buffer_allocate();
+    vector<uv_buf_t> buffers;
+    int pos = 0;
 
-    int len = size > buffer.len ? buffer.len : size;
-    memcpy(buffer.base, buf, len);
-    buffer.len = len;
+    while (pos < size) {
+        uv_buf_t buffer = buffer_allocate();
+        buffers.push_back(buffer);
+        int len = (size - pos) > buffer.len ? buffer.len : size - pos;
+        memcpy(buffer.base, buf + pos, len);
+        buffer.len = len;
+        pos += len;
+    }
+
+    uv_buf_t *data = new uv_buf_t[buffers.size()];
+    for (int i = 0; i < buffers.size(); ++i) {
+        data[i] = buffers.at(i);
+    }
 
     uv_write_t *req = write_req_allocator.allocate();
-    write_requests.insert_or_assign(req, buffer);
+    write_requests.insert_or_assign(req, buffers);
     ++queued_writes;
 
-    int written = uv_try_write((uv_stream_t *)client, &buffer, 1);
+    int written = uv_try_write((uv_stream_t *)client, data, buffers.size());
     if (written > 0) {
+        delete[] data;
         req->handle = (uv_stream_t *)client;
         req->cb = __on_send;
         __on_send(req, written);
         return written;
     }
-    int res = uv_write(req, (uv_stream_t *)client, &buffer, 1, __on_send);
-    return len;
+    int res = uv_write(req, (uv_stream_t *)client, data, buffers.size(), __on_send);
+    delete[] data;
+    return size;
 }
 
 int SSLClient::_recv(int size, char *buf) noexcept {
@@ -84,7 +99,7 @@ void SSLClient::__on_recv(uv_stream_t *stream, ssize_t nread, const uv_buf_t *bu
 
     if (client->context) {
         do {
-            client->context->onRead(client);
+            client->context->on_read(client);
         } while (client->is_open() && client->hasData() && !wolfSSL_want_read(client->ssl));
     }
 }
@@ -99,7 +114,9 @@ void SSLClient::__on_send(uv_write_t *req, int status) noexcept {
     // Deallocate the buffer used in the write request
     auto found = client->write_requests.find(req);
     if (found != client->write_requests.end()) {
-        buffer_deallocate(found->second);
+        for (uv_buf_t buf : found->second) {
+            buffer_deallocate(buf);
+        }
         client->write_requests.erase(found);
     }
 
@@ -108,7 +125,7 @@ void SSLClient::__on_send(uv_write_t *req, int status) noexcept {
     }
     if (client->queued_writes == 0) {
         if (client->context) {
-            client->context->onWrite(client);
+            client->context->on_write(client);
         }
         if (client->queued_close) {
             client->close();
@@ -127,7 +144,7 @@ void SSLClient::__on_close(uv_handle_t *handle) noexcept {
     handle->data = nullptr;
 
     if (client->context) {
-        client->context->onClose(client);
+        client->context->on_close(client);
     }
 
     client->client = nullptr;
@@ -164,7 +181,9 @@ SSLClient::~SSLClient() noexcept {
     uv_close((uv_handle_t *)timeout, on_timeout_close);
     // Doing this may cause an error in the event that the client is deleted while in the middle of a write
     for (auto pair : write_requests) {
-        buffer_deallocate(pair.second);
+        for (uv_buf_t buf : pair.second) {
+            buffer_deallocate(buf);
+        }
         write_req_allocator.deallocate(pair.first);
     }
 }
@@ -354,10 +373,21 @@ void SSLServer::load(uv_loop_t *loop, const std::string &host, int port, const s
 
     sockaddr_in addr;
     uv_ip4_addr(host.c_str(), port, &addr);
-    uv_tcp_bind(server, (const sockaddr *)&addr, 0);
-    int errors = uv_listen((uv_stream_t *)server, 5, __on_accept);
-    if (errors != 0) {
-        cerr << "Error [SSLServer::load] Could not listen on '" << host << ":" << port << ":" << endl;
+    int error = uv_tcp_bind(server, (const sockaddr *)&addr, 0);
+    if (error != 0) {
+        cerr << "Error [SSLServer::load] Could not bind to '" << host << ":" << port << "': " << uv_strerror(error) << endl;
+        wolfSSL_CTX_free(wolfssl);
+        wolfssl = nullptr;
+        uv_close((uv_handle_t *)server, on_tcp_close);
+        server = nullptr;
+        return;
+    }
+}
+
+void SSLServer::listen() noexcept {
+    int error = uv_listen((uv_stream_t *)server, 5, __on_accept);
+    if (error != 0) {
+        cerr << "Error [SSLServer::load] Could not start listening: " << uv_strerror(error) << endl;
         wolfSSL_CTX_free(wolfssl);
         wolfssl = nullptr;
         uv_close((uv_handle_t *)server, on_tcp_close);
