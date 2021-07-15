@@ -1,6 +1,8 @@
 #ifndef __GEMCAPS_SHARED_HANDLER__
 #define __GEMCAPS_SHARED_HANDLER__
 
+#include <cassert>
+
 #include <string>
 #include <iostream>
 #include <memory>
@@ -27,6 +29,43 @@
 #define RES_CERT_REQUIRED 60
 #define RES_CERT_NOT_AUTH 61
 #define RES_CERT_NOT_VALID 62
+
+constexpr size_t string_length(const char *str) {
+    int length = 0;
+    while (str[length] != '\0') ++length;
+    return length;
+}
+
+constexpr void string_copy(char *dest, const char *src) {
+    int i = 0;
+    while (src[i] != '\0') {
+        dest[i] = src[i];
+        ++i;
+    }
+    dest[i] = '\0';
+}
+
+/**
+ * Create a response header string
+ * 
+ * @param response response code
+ * @param meta meta value
+ * @param header the header buffer (this allows us to put the header outside the scope of the function)
+ * 
+ * @return the header string
+ */
+constexpr const char *responseHeader(int response, const char *meta = "", char header[1024] = 0) {
+    size_t i = 0;
+    header[i++] = ('0' + (response / 10) % 10);
+    header[i++] = ('0' + response % 10);
+    header[i++] = ' ';
+    string_copy(header + i, meta);
+    i += string_length(meta);
+    header[i++] = '\r';
+    header[i++] = '\n';
+    header[i++] = '\0';
+    return header;
+}
 
 /**
  * A gemini request.

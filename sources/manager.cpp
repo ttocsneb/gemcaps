@@ -273,6 +273,7 @@ void Manager::on_read(SSLClient *client) noexcept {
 
     for (auto handler : handlers) {
         if (handler->shouldHandle(request->host, request->path)) {
+            client->setTimeout(30000);
             data->body.setObserver(this);
             data->body.setContext(client);
             handler->handle(request, &data->body);

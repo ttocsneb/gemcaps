@@ -20,4 +20,6 @@ class MimeTypes {
     static int strcmpi(const char *s1, const char *s2);
 };
 
+inline MimeTypes mimeTypes;
+
 #endif
