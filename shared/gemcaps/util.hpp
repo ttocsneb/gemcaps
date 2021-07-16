@@ -7,7 +7,33 @@
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
-class IBufferPipe;
+/**
+ * Get the length of a string literal at compile time
+ * 
+ * @param str string to get the length of
+ * 
+ * @return the length of the string
+ */
+constexpr size_t strlitlen(const char *str) {
+    int length = 0;
+    while (str[length] != '\0') ++length;
+    return length;
+}
+
+/**
+ * Copy a string literal into another string at compile time
+ * 
+ * @param dest destination string
+ * @param src source string
+ */
+constexpr void strlitcpy(char *dest, const char *src) {
+    int i = 0;
+    while (src[i] != '\0') {
+        dest[i] = src[i];
+        ++i;
+    }
+    dest[i] = '\0';
+}
 
 
 class IBufferPipe;

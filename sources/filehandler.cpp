@@ -17,9 +17,17 @@ using std::ostringstream;
 
 namespace re_consts = std::regex_constants;
 
-const char *ILLEGAL_FILE = responseHeader(RES_NOT_FOUND, "Illegal File");
-const char *DOES_NOT_EXIST = responseHeader(RES_NOT_FOUND, "File does not exist");
-const char *FILE_NOT_OPEN = responseHeader(RES_GONE, "File could not be opened");
+constexpr const auto ILLEGAL_FILE = responseHeader<32>(RES_NOT_FOUND, "Illegal File");
+constexpr const auto DOES_NOT_EXIST = responseHeader<32>(RES_NOT_FOUND, "File does not exist");
+constexpr const auto FILE_NOT_OPEN = responseHeader<32>(RES_GONE, "File could not be opened");
+
+#define HEADER(x) x.buf, x.length()
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// FileHandler
+//
+////////////////////////////////////////////////////////////////////////////////
 
 bool FileHandler::validateFile(string file) const noexcept {
     for (regex pattern : rules) {
@@ -67,6 +75,14 @@ struct RequestContext {
 };
 ReusableAllocator<RequestContext> request_allocator;
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// FileHandler::handle()
+//
+// Handle the file request and send the response to the client.
+//
+////////////////////////////////////////////////////////////////////////////////
+
 void read_file(RequestContext *ctx);
 void read_dir(RequestContext *ctx);
 
@@ -76,8 +92,8 @@ void FileHandler::handle(const Request *request, OBufferPipe *body) noexcept {
     string file = path::delUps(request->path);
     if (file != request->path) {
         // TODO Check if works properly with paths that end in '/'
-        const char *header = responseHeader(RES_REDIRECT_PERM, file.c_str());
-        body->write(header, strlen(header));
+        const auto header = responseHeader(RES_REDIRECT_PERM, file.c_str());
+        body->write(HEADER(header));
         body->close();
         return;
     }
@@ -88,7 +104,7 @@ void FileHandler::handle(const Request *request, OBufferPipe *body) noexcept {
 
     // Assert that the file matches the rules
     if (!validateFile(file)) {
-        body->write(ILLEGAL_FILE, strlen(ILLEGAL_FILE));
+        body->write(HEADER(ILLEGAL_FILE));
         body->close();
         return;
     }
@@ -108,7 +124,7 @@ void handle_on_stat(uv_fs_t *req) {
 
     if (req->result != 0) {
         // The file does not exist or does not have read permissions
-        ctx->body->write(DOES_NOT_EXIST, strlen(DOES_NOT_EXIST));
+        ctx->body->write(HEADER(DOES_NOT_EXIST));
         ctx->body->close();
         uv_fs_req_cleanup(req);
         request_allocator.deallocate(ctx);
@@ -128,11 +144,21 @@ void handle_on_stat(uv_fs_t *req) {
         return;
     }
 
-    ctx->body->write(DOES_NOT_EXIST, strlen(DOES_NOT_EXIST));
+    ctx->body->write(HEADER(DOES_NOT_EXIST));
     ctx->body->close();
     uv_fs_req_cleanup(req);
     request_allocator.deallocate(ctx);
 }
+
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// read_file()
+//
+// Read the file in `ctx->file` to the client
+//
+////////////////////////////////////////////////////////////////////////////////
+
 
 void file_on_close(uv_fs_t *req);
 void file_on_read(uv_fs_t *req);
@@ -145,7 +171,7 @@ void file_on_open(uv_fs_t *req) {
 
     if (req->result != 0) {
         // The file couldn't be opened
-        ctx->body->write(FILE_NOT_OPEN, strlen(FILE_NOT_OPEN));
+        ctx->body->write(HEADER(FILE_NOT_OPEN));
         ctx->body->close();
         uv_fs_req_cleanup(req);
         request_allocator.deallocate(ctx);
@@ -155,8 +181,8 @@ void file_on_open(uv_fs_t *req) {
     ctx->buf = buffer_allocate();
     ctx->offset = 0;
 
-    const char *header = responseHeader(RES_SUCCESS, mimeTypes.getType(ctx->file.c_str()));
-    ctx->body->write(header, strlen(header));
+    const auto header = responseHeader(RES_SUCCESS, mimeTypes.getType(ctx->file.c_str()));
+    ctx->body->write(HEADER(header));
 
     uv_fs_read(req->loop, req, ctx->fd, &ctx->buf, 1, ctx->offset, file_on_read);
 }
@@ -184,6 +210,18 @@ void file_on_close(uv_fs_t *req) {
     request_allocator.deallocate(ctx);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// read_dir()
+//
+// Read the directory in `ctx->file` to the client. If the directory contains
+// an index.* file, and that file is allowed to be viewed, then that file will
+// be read to the client instead.
+//
+// If there is no index.* file, and ctx->handler->canReadDirs() is true, then
+// the contents of the directory will be read to the client.
+//
+////////////////////////////////////////////////////////////////////////////////
 
 void dir_on_scan(uv_fs_t *req);
 void read_dir(RequestContext *ctx) {
@@ -193,7 +231,7 @@ void dir_on_scan(uv_fs_t *req) {
     RequestContext *ctx = static_cast<RequestContext *>(req->data);
 
     if (req->result < 0) {
-        ctx->body->write(FILE_NOT_OPEN, strlen(FILE_NOT_OPEN));
+        ctx->body->write(HEADER(FILE_NOT_OPEN));
         ctx->body->close();
         uv_fs_req_cleanup(req);
         request_allocator.deallocate(ctx);
@@ -227,7 +265,7 @@ void dir_on_scan(uv_fs_t *req) {
     uv_fs_req_cleanup(req);
 
     if (!ctx->handler->canReadDirs()) {
-        ctx->body->write(DOES_NOT_EXIST, strlen(DOES_NOT_EXIST));
+        ctx->body->write(HEADER(DOES_NOT_EXIST));
         ctx->body->close();
         request_allocator.deallocate(ctx);
         return;
@@ -235,8 +273,8 @@ void dir_on_scan(uv_fs_t *req) {
 
     // Read the contents of the directory
 
-    const char *header = responseHeader(RES_SUCCESS, "text/gemini");
-    ctx->body->write(header, strlen(header));
+    constexpr const auto header = responseHeader(RES_SUCCESS, "text/gemini");
+    ctx->body->write(HEADER(header));
 
     ostringstream oss;
     oss << "# DirectoryContents\n\n## " << ctx->request->path << "\n\n";
@@ -259,6 +297,11 @@ void dir_on_scan(uv_fs_t *req) {
     request_allocator.deallocate(ctx);
 }
 
+////////////////////////////////////////////////////////////////////////////////
+//
+// FileHandlerFactory
+//
+////////////////////////////////////////////////////////////////////////////////
 
 shared_ptr<Handler> FileHandlerFactory::createHandler(YAML::Node settings) {
     string host = getProperty<string>(settings, HOST, "");

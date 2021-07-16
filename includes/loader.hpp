@@ -29,7 +29,7 @@ std::shared_ptr<SSLServer> loadServer(YAML::Node settings, uv_loop_t *loop = nul
 
 class HandlerLoader {
 private:
-    phmap::flat_hash_map<std::string, HandlerFactory> factories;
+    phmap::flat_hash_map<std::string, std::shared_ptr<HandlerFactory>> factories;
 public:
     /**
      * Load the factories into memory
@@ -43,7 +43,7 @@ public:
      * 
      * @return the loaded handler
      */
-    std::shared_ptr<Handler> loadHandler(YAML::Node settings) noexcept;
+    std::shared_ptr<Handler> loadHandler(YAML::Node settings);
 };
 
 #endif

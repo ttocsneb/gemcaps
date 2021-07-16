@@ -11,60 +11,43 @@
 
 #include "gemcaps/server.hpp"
 #include "gemcaps/util.hpp"
+#include "gemcaps/stringutil.hpp"
 
-#define RES_INPUT 10
-#define RES_SENSITIVE_INPUT 11
-#define RES_SUCCESS 20
-#define RES_REDIRECT_TEMP 30
-#define RES_REDIRECT_PERM 31
-#define RES_FAIL_TEMP 40
-#define RES_SERVER_UNAVAIL 41
-#define RES_ERROR_CGI 42
-#define RES_ERROR_PROXY 43
-#define RES_SLOW_DOWN 44
-#define RES_FAIL_PERM 50
-#define RES_NOT_FOUND 51
-#define RES_GONE 52
-#define RES_BAD_REQUEST 59
-#define RES_CERT_REQUIRED 60
-#define RES_CERT_NOT_AUTH 61
-#define RES_CERT_NOT_VALID 62
 
-constexpr size_t string_length(const char *str) {
-    int length = 0;
-    while (str[length] != '\0') ++length;
-    return length;
-}
-
-constexpr void string_copy(char *dest, const char *src) {
-    int i = 0;
-    while (src[i] != '\0') {
-        dest[i] = src[i];
-        ++i;
-    }
-    dest[i] = '\0';
-}
+constexpr const int RES_INPUT = 10;
+constexpr const int RES_SENSITIVE_INPUT = 11;
+constexpr const int RES_SUCCESS = 20;
+constexpr const int RES_REDIRECT_TEMP = 30;
+constexpr const int RES_REDIRECT_PERM = 31;
+constexpr const int RES_FAIL_TEMP = 40;
+constexpr const int RES_SERVER_UNAVAIL = 41;
+constexpr const int RES_ERROR_CGI = 42;
+constexpr const int RES_ERROR_PROXY = 43;
+constexpr const int RES_SLOW_DOWN = 44;
+constexpr const int RES_FAIL_PERM = 50;
+constexpr const int RES_NOT_FOUND = 51;
+constexpr const int RES_GONE = 52;
+constexpr const int RES_BAD_REQUEST = 59;
+constexpr const int RES_CERT_REQUIRED = 60;
+constexpr const int RES_CERT_NOT_AUTH = 61;
+constexpr const int RES_CERT_NOT_VALID = 62;
 
 /**
  * Create a response header string
  * 
  * @param response response code
- * @param meta meta value
- * @param header the header buffer (this allows us to put the header outside the scope of the function)
+ * @param meta meta string
  * 
- * @return the header string
+ * @return string literal
  */
-constexpr const char *responseHeader(int response, const char *meta = "", char header[1024] = 0) {
-    size_t i = 0;
-    header[i++] = ('0' + (response / 10) % 10);
-    header[i++] = ('0' + response % 10);
-    header[i++] = ' ';
-    string_copy(header + i, meta);
-    i += string_length(meta);
-    header[i++] = '\r';
-    header[i++] = '\n';
-    header[i++] = '\0';
-    return header;
+template<size_t Size = 1024>
+constexpr const StringLiteral<Size> responseHeader(int response, const char *meta) {
+    StringLiteral<Size> builder;
+    builder.append(response);
+    builder.append(" ");
+    builder.append(meta);
+    builder.append("\r\n");
+    return builder;
 }
 
 /**

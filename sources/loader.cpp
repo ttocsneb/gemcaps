@@ -29,7 +29,7 @@ void HandlerLoader::loadFactories() noexcept {
     // TODO Load factories
 }
 
-shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings) noexcept {
+shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings) {
     string handlerName = getProperty<string>(settings, HANDLER);
 
     auto factory = factories.find(handlerName);
@@ -37,5 +37,5 @@ shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings) noexcept {
         throw InvalidSettingsException(settings[HANDLER].Mark(), "'" + handlerName + "' is not a valid handler");
     }
 
-    return factory->second.createHandler(settings);
+    return factory->second->createHandler(settings);
 }

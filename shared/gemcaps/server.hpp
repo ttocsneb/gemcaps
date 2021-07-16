@@ -80,7 +80,7 @@ public:
     void close() noexcept;
     void crash() noexcept;
 
-    void setContext(ClientContext *context) noexcept;
+    void setContext(ClientContext *context) noexcept { this->context = context; }
     ClientContext *getContext() const noexcept { return context; }
 };
 
