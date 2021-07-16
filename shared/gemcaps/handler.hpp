@@ -9,7 +9,6 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include "gemcaps/server.hpp"
 #include "gemcaps/util.hpp"
 #include "gemcaps/stringutil.hpp"
 
@@ -53,8 +52,6 @@ constexpr const StringLiteral<Size> responseHeader(int response, const char *met
 /**
  * A gemini request.
  * 
- * Eventually, client certificates will be included in the Request object
- * 
  * @property header the full header of the request
  * @property host
  * @property port
@@ -70,19 +67,65 @@ struct Request {
 };
 
 /**
+ * A connection to a client.
+ *
+ * This abstraction represents the connection to a client.
+ *
+ * Eventually, support for client certificates will be added to this abstraction
+ */
+class ClientConnection {
+public:
+	/**
+	 * Get the client's request
+	 *
+	 * @return the client's request
+	 */
+	virtual const Request& getRequest() const = 0;
+
+	/**
+	 * Send data to the client
+	 * 
+	 * @param data data to send
+	 * @param length length of the data
+	 */
+	virtual void send(const void *data, size_t length) = 0;
+	/**
+	 * Send text to the client
+	 *
+	 * @param message null terminated string
+	 */
+	void send(const char *message) noexcept {
+		send(message, strlen(message));
+	}
+
+	/**
+	 * Close the connection to the client
+	 */
+	virtual void close() = 0;
+};
+
+/**
  * The base pure virtual class for all Handlers.
  */
 class Handler {
 public:
     /**
      * Handle an incoming request asynchronously
-     * 
+     *
+	 * To properly handle a request, you must first send a response header
+	 * (you may use responseHeader() to generate the header) then if the
+	 * response code calls for a body, send the body contents. After your
+	 * response is finished, you must call close on the client.
+	 *
      * @note This function must not perform any synchronous operations.
+	 *
+	 * @warning the client is only garenteed to exist prior to closing it.
+	 *     After calling ClientConnection::close(), you should assume that
+	 *     the client is no longer in memory.
      * 
-     * @param request The request header
-     * @param body The body output buffer
+     * @param client the connection to the client
      */
-    virtual void handle(const Request *request, OBufferPipe *body) = 0;
+    virtual void handle(ClientConnection *client) = 0;
     /**
      * Check if this handler should process a given request.
      * 

@@ -60,7 +60,7 @@ public:
 
     // Override Handler
     bool shouldHandle(std::string host, std::string path) noexcept;
-    void handle(const Request *request, OBufferPipe *body) noexcept;
+    void handle(ClientConnection *client) noexcept;
 };
 
 

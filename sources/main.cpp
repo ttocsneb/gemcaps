@@ -9,7 +9,7 @@
 
 #include <uv.h>
 
-#include "gemcaps/server.hpp"
+#include "server.hpp"
 #include "manager.hpp"
 #include "gemcaps/settings.hpp"
 

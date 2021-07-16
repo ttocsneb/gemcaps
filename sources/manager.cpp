@@ -38,6 +38,30 @@ bool is_yaml(uv_dirent_t *entry) {
 }
 
 
+void GeminiConnection::send(const void *data, size_t length) noexcept {
+	buffer.write((const char *)data, length);
+	char buf[1024];
+	size_t read = buffer.read(1024, buf);
+
+	client->write(buf, read);
+}
+
+void GeminiConnection::close() noexcept {
+	client->close();
+}
+
+void GeminiConnection::on_close(SSLClient *client) noexcept {
+	manager->on_close(client);
+}
+
+void GeminiConnection::on_write(SSLClient *client) noexcept {
+	if (buffer.ready() > 0) {
+		char buf[1024];
+		size_t read = buffer.read(1024, buf);
+		client->write(buf, read);
+	}
+}
+
 
 void Manager::loadServers(string config_dir) noexcept {
     servers.clear();
@@ -110,7 +134,7 @@ void Manager::startServers() noexcept {
 }
 
 void Manager::on_accept(SSLServer *server, SSLClient *client) noexcept {
-    requests.insert({client, make_unique<ClientData>()});
+    requests.insert({client, make_unique<GeminiConnection>(this, client)});
     client->setContext(this);
     client->setTimeout(1000);
     client->listen();
@@ -159,7 +183,6 @@ bool parseHost(Request *request) {
     request->host = request->header.substr(start, end - start);
     return true;
 }
-
 bool parsePort(Request *request, size_t start) {
     bool result = true;
     size_t end = request->header.find('/', start);
@@ -191,7 +214,6 @@ bool parsePort(Request *request, size_t start) {
     request->port = port;
     return true;
 }
-
 bool parsePath(Request *request, size_t start) {
     bool result = true;
     size_t end = request->header.find('?', start);
@@ -213,7 +235,6 @@ bool parsePath(Request *request, size_t start) {
     request->path = request->header.substr(start, end - start);
     return true;
 }
-
 bool parseQuery(Request *request, size_t start) {
     bool result = true;
     size_t end = request->header.find('\r', start);
@@ -232,8 +253,8 @@ bool parseQuery(Request *request, size_t start) {
 
 void Manager::on_read(SSLClient *client) noexcept {
     char buf[1024];
-    ClientData *data = requests[client].get();
-    Request *request = &data->request;
+    GeminiConnection *gemini = requests[client].get();
+    Request &request = gemini->getRequest();
     int read = client->read(1024, buf);
     if (read < 0) {
         if (read == WOLFSSL_ERROR_WANT_READ || read == WOLFSSL_ERROR_WANT_WRITE) {
@@ -244,16 +265,16 @@ void Manager::on_read(SSLClient *client) noexcept {
         return;
     }
     if (read > 0) {
-        request->header += string(buf, read);
+        request.header += string(buf, read);
     }
 
-    if (request->header.length() > 1024) {
+    if (request.header.length() > 1024) {
         // The header is invalid, and will be discarded
         client->crash();
         return;
     }
 
-    size_t pos = request->header.find('\n');
+    size_t pos = request.header.find('\n');
     if (pos == string::npos) {
         // The header isn't finished yet, wait for more data
         return;
@@ -261,10 +282,10 @@ void Manager::on_read(SSLClient *client) noexcept {
 
     // The request is finished
     client->stop_listening();
-    request->header = request->header.substr(0, pos + 1);
+    request.header = request.header.substr(0, pos + 1);
 
     // Parse the header
-    if (!parseHost(request)) {
+    if (!parseHost(&request)) {
         client->crash();
         return;
     }
@@ -272,16 +293,13 @@ void Manager::on_read(SSLClient *client) noexcept {
     // Figure out which handler should process the manager
 
     for (auto handler : handlers) {
-        if (handler->shouldHandle(request->host, request->path)) {
+        if (handler->shouldHandle(request.host, request.path)) {
             client->setTimeout(30000);
-            data->body.setObserver(this);
-            data->body.setContext(client);
-            handler->handle(request, &data->body);
+            handler->handle(gemini);
             return;
         }
     }
     client->crash();
-
 }
 
 void Manager::on_close(SSLClient *client) noexcept {
@@ -291,33 +309,3 @@ void Manager::on_close(SSLClient *client) noexcept {
     }
     requests.erase(found);
 }
-
-void Manager::on_write(SSLClient *client) noexcept {
-    auto found = requests.find(client);
-    if (found == requests.end()) {
-        client->crash();
-        return;
-    }
-    if (found->second->body.ready()) {
-        on_buffer_write(&found->second->body);
-        return;
-    }
-    if (found->second->body.is_closed()) {
-        client->close();
-    }
-}
-
-void Manager::on_buffer_write(IBufferPipe *buffer) noexcept {
-    char buf[1024];
-    SSLClient *client = static_cast<SSLClient *>(buffer->getContext());
-    if (client == nullptr) {
-        return;
-    }
-    size_t read = buffer->read(1024, buf);
-    if (read > 0) {
-        client->write(buf, read);
-    } else if (buffer->is_closed()) {
-        client->close();
-    }
-}
-

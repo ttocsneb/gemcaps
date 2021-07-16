@@ -2,6 +2,8 @@
 
 #include <sstream>
 
+#include <uv.h>
+
 #include "gemcaps/util.hpp"
 #include "gemcaps/uvutils.hpp"
 #include "gemcaps/pathutils.hpp"
@@ -69,8 +71,7 @@ struct RequestContext {
     uv_buf_t buf;
     size_t offset;
     string file;
-    OBufferPipe *body;
-    const Request *request;
+	ClientConnection *client;
     const FileHandler *handler;
 };
 ReusableAllocator<RequestContext> request_allocator;
@@ -87,14 +88,15 @@ void read_file(RequestContext *ctx);
 void read_dir(RequestContext *ctx);
 
 void handle_on_stat(uv_fs_t *req);
-void FileHandler::handle(const Request *request, OBufferPipe *body) noexcept {
+void FileHandler::handle(ClientConnection *client) noexcept {
     // Get the absolute path of the requested file
-    string file = path::delUps(request->path);
-    if (file != request->path) {
+	const Request &request = client->getRequest();
+    string file = path::delUps(request.path);
+    if (file != request.path) {
         // TODO Check if works properly with paths that end in '/'
         const auto header = responseHeader(RES_REDIRECT_PERM, file.c_str());
-        body->write(HEADER(header));
-        body->close();
+        client->send(HEADER(header));
+        client->close();
         return;
     }
     if (!this->base.empty()) {
@@ -104,8 +106,8 @@ void FileHandler::handle(const Request *request, OBufferPipe *body) noexcept {
 
     // Assert that the file matches the rules
     if (!validateFile(file)) {
-        body->write(HEADER(ILLEGAL_FILE));
-        body->close();
+        client->send(HEADER(ILLEGAL_FILE));
+        client->close();
         return;
     }
 
@@ -114,8 +116,7 @@ void FileHandler::handle(const Request *request, OBufferPipe *body) noexcept {
     ctx->file = file;
     ctx->req.data = ctx;
     ctx->req.loop = uv_default_loop();
-    ctx->body = body;
-    ctx->request = request;
+	ctx->client = client;
     ctx->handler = this;
     uv_fs_stat(ctx->req.loop, &ctx->req, ctx->file.c_str(), handle_on_stat);
 }
@@ -124,28 +125,28 @@ void handle_on_stat(uv_fs_t *req) {
 
     if (req->result != 0) {
         // The file does not exist or does not have read permissions
-        ctx->body->write(HEADER(DOES_NOT_EXIST));
-        ctx->body->close();
+        ctx->client->send(HEADER(DOES_NOT_EXIST));
+        ctx->client->close();
         uv_fs_req_cleanup(req);
         request_allocator.deallocate(ctx);
         return;
     }
 
-    if (S_ISDIR(req->statbuf.st_mode)) {
+    if (S_IFDIR & req->statbuf.st_mode) {
         // The path is a directory
         uv_fs_req_cleanup(req);
         read_dir(ctx);
         return;
     }
-    if (S_ISREG(req->statbuf.st_mode)) {
+    if (S_IFREG & req->statbuf.st_mode) {
         // The path is a file
         uv_fs_req_cleanup(req);
         read_file(ctx);
         return;
     }
 
-    ctx->body->write(HEADER(DOES_NOT_EXIST));
-    ctx->body->close();
+    ctx->client->send(HEADER(DOES_NOT_EXIST));
+    ctx->client->close();
     uv_fs_req_cleanup(req);
     request_allocator.deallocate(ctx);
 }
@@ -169,20 +170,20 @@ void read_file(RequestContext *ctx) {
 void file_on_open(uv_fs_t *req) {
     RequestContext *ctx = static_cast<RequestContext *>(req->data);
 
-    if (req->result != 0) {
+    if (req->result < 0) {
         // The file couldn't be opened
-        ctx->body->write(HEADER(FILE_NOT_OPEN));
-        ctx->body->close();
+        ctx->client->send(HEADER(FILE_NOT_OPEN));
+        ctx->client->close();
         uv_fs_req_cleanup(req);
         request_allocator.deallocate(ctx);
         return;
     }
-    ctx->fd = req->file;
+    ctx->fd = req->result;
     ctx->buf = buffer_allocate();
     ctx->offset = 0;
 
     const auto header = responseHeader(RES_SUCCESS, mimeTypes.getType(ctx->file.c_str()));
-    ctx->body->write(HEADER(header));
+    ctx->client->send(HEADER(header));
 
     uv_fs_read(req->loop, req, ctx->fd, &ctx->buf, 1, ctx->offset, file_on_read);
 }
@@ -190,14 +191,14 @@ void file_on_read(uv_fs_t *req) {
     RequestContext *ctx = static_cast<RequestContext *>(req->data);
 
     if (req->result <= 0) {
-        ctx->body->close();
+        ctx->client->close();
         uv_fs_req_cleanup(req);
         buffer_deallocate(ctx->buf);
         uv_fs_close(req->loop, req, ctx->fd, file_on_close);
         return;
     }
 
-    ctx->body->write(ctx->buf.base, req->result);
+    ctx->client->send(ctx->buf.base, req->result);
     ctx->offset += req->result;
 
     uv_fs_req_cleanup(req);
@@ -231,8 +232,8 @@ void dir_on_scan(uv_fs_t *req) {
     RequestContext *ctx = static_cast<RequestContext *>(req->data);
 
     if (req->result < 0) {
-        ctx->body->write(HEADER(FILE_NOT_OPEN));
-        ctx->body->close();
+        ctx->client->send(HEADER(FILE_NOT_OPEN));
+        ctx->client->close();
         uv_fs_req_cleanup(req);
         request_allocator.deallocate(ctx);
         return;
@@ -265,8 +266,8 @@ void dir_on_scan(uv_fs_t *req) {
     uv_fs_req_cleanup(req);
 
     if (!ctx->handler->canReadDirs()) {
-        ctx->body->write(HEADER(DOES_NOT_EXIST));
-        ctx->body->close();
+        ctx->client->send(HEADER(DOES_NOT_EXIST));
+        ctx->client->close();
         request_allocator.deallocate(ctx);
         return;
     }
@@ -274,26 +275,28 @@ void dir_on_scan(uv_fs_t *req) {
     // Read the contents of the directory
 
     constexpr const auto header = responseHeader(RES_SUCCESS, "text/gemini");
-    ctx->body->write(HEADER(header));
+    ctx->client->send(HEADER(header));
+	
+	const Request &request = ctx->client->getRequest();
 
     ostringstream oss;
-    oss << "# DirectoryContents\n\n## " << ctx->request->path << "\n\n";
+    oss << "# DirectoryContents\n\n## " << request.path << "\n\n";
 
-    oss << "=> " << path::dirname(ctx->request->path) << " back\n\n";
+    oss << "=> " << path::dirname(request.path) << " back\n\n";
 
     for (string folder : folders) {
-        oss << "=> " << path::join(ctx->request->path, folder) << "/ " << folder << "/\n";
+        oss << "=> " << path::join(request.path, folder) << "/ " << folder << "/\n";
     }
 
     oss << "\n";
 
     for (string file : children) {
-        oss << "=> " << path::join(ctx->request->path, file) << " " << file << "\n";
+        oss << "=> " << path::join(request.path, file) << " " << file << "\n";
     }
 
     string response = oss.str();
-    ctx->body->write(response.c_str(), response.length());
-    ctx->body->close();
+    ctx->client->send(response.c_str(), response.length());
+    ctx->client->close();
     request_allocator.deallocate(ctx);
 }
 

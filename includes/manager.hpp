@@ -17,14 +17,43 @@
 
 #include "cache.hpp"
 #include "gemcaps/settings.hpp"
-#include "gemcaps/server.hpp"
+#include "server.hpp"
 #include "gemcaps/handler.hpp"
 
 
 inline const std::string NAME = "name";
 
+class Manager;
 
-class Manager : public ServerContext, public ClientContext, public IBufferPipeObserver {
+/**
+ * An object that sends messages to the client from a handler
+ */
+class GeminiConnection : public ClientConnection, public ClientContext {
+private:
+	Manager *manager;
+	Request request;
+	SSLClient *client;
+	BufferPipe buffer;
+public:
+	GeminiConnection(Manager *manager, SSLClient *client)
+		: manager(manager),
+		  client(client) {}
+
+	Request &getRequest() noexcept { return request; }
+
+	// Overrides ClientConnection
+	const Request &getRequest() const noexcept { return request; }
+	void send(const void *data, size_t length) noexcept;
+	void close() noexcept;
+
+	// Override ClientContext
+	void on_close(SSLClient *client) noexcept;
+	void on_read(SSLClient *client) noexcept {}
+	void on_write(SSLClient *client) noexcept;
+};
+
+
+class Manager : public ServerContext, public ClientContext {
 private:
     struct ClientData {
         Request request;
@@ -34,7 +63,7 @@ private:
     std::vector<std::shared_ptr<Handler>> handlers;
     phmap::flat_hash_map<std::string, std::shared_ptr<SSLServer>> servers;
 
-    phmap::flat_hash_map<SSLClient *, std::unique_ptr<ClientData>> requests;
+    phmap::flat_hash_map<SSLClient *, std::unique_ptr<GeminiConnection>> requests;
 public:
 
     /**
@@ -60,10 +89,7 @@ public:
     // Override ClientContext
     void on_close(SSLClient *client) noexcept;
     void on_read(SSLClient *client) noexcept;
-    void on_write(SSLClient *client) noexcept;
-
-    // Override IBufferPipeObserver
-    void on_buffer_write(IBufferPipe *buffer) noexcept;
+	void on_write(SSLClient *client) noexcept {}
 };
 
 #endif

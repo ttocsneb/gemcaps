@@ -8,7 +8,7 @@
 
 #include <uv.h>
 
-#include "gemcaps/server.hpp"
+#include "server.hpp"
 #include "gemcaps/handler.hpp"
 
 inline const std::string HOST = "host";
