@@ -62,7 +62,7 @@ string path::dirname(string path) noexcept {
     size_t found_bck = path.rfind('\\');
     // The path is only one element
     if (found_fwd == string::npos && found_bck == string::npos) {
-        return path;
+        return "";
     }
 
     if (found_fwd == string::npos) {
@@ -131,7 +131,7 @@ string path::relpath(string path, string rel) noexcept {
     vector<string> path_parts = split(path);
     vector<string> rel_parts = split(rel);
 
-    while (!path_parts.empty() && !rel.empty()) {
+    while (!path_parts.empty() && !rel_parts.empty()) {
         if (path_parts.front() != rel_parts.front()) {
             return path;
         }
