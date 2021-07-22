@@ -40,5 +40,6 @@ size_t BufferPipe::read(size_t len, char *buf) noexcept {
 
     memcpy(buf, buffer + start, read);
     start += read;
+    length -= read;
     return read;
 }

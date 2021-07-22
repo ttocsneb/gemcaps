@@ -40,6 +40,7 @@ add_executable(gemcaps
 
 target_include_directories(gemcaps_src PRIVATE ${private_includes})
 target_include_directories(gemcaps PRIVATE ${private_includes})
+
 target_include_directories(gemcaps_src PUBLIC ${public_includes})
 
 target_link_libraries(gemcaps_src PUBLIC

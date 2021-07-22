@@ -152,8 +152,7 @@ private:
 
     Allocator allocator;
 public:
-    ReusableAllocator()
-            : stack_avail(alloc_size) {
+    ReusableAllocator() {
         for (T &item : stack) {
             stack_avail.push_back(&item);
         }
@@ -180,7 +179,7 @@ public:
             stack_in_use.insert(item);
             return item;
         }
-        for (auto pair : heap_avail) {
+        for (auto &pair : heap_avail) {
             if (!pair.second.empty()) {
                 T* item = pair.second.back();
                 pair.second.pop_back();
@@ -189,7 +188,7 @@ public:
             }
         }
         T *new_items = allocator.allocate(alloc_size);
-        std::vector<T *> new_avail(alloc_size);
+        std::vector<T *> new_avail;
         for (int i = 0; i < alloc_size; ++i) {
             new_avail.push_back(&new_items[i]);
         }

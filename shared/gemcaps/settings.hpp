@@ -16,7 +16,7 @@ private:
     YAML::Mark mark;
 public:
     /**
-     * Create an InvalidSettingsException
+     * Create an InvalidSettingsExceptigemcapson
      * 
      * @param mark the position in the file of the exception
      * @param message the message of why an exception occurred
