@@ -7,6 +7,8 @@
 
 #include <uv.h>
 
+#include "gemcaps/util.hpp"
+
 using std::string;
 using std::vector;
 using std::make_shared;

@@ -7,6 +7,56 @@
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
+#define DEBUG
+#define INFO
+#define WARN
+#define LINES
+#define COLORS
+
+
+#ifdef COLORS
+#define COLOR_RED "\u001b[31m"
+#define COLOR_YELLOW "\u001b[33m"
+#define COLOR_WHITE "\u001b[37m"
+#define COLOR_MAGENTA "\u001b[35m"
+#define COLOR_RESET "\u001b[0m"
+#else
+#define COLOR_RED ""
+#define COLOR_YELLOW ""
+#define COLOR_WHITE ""
+#define COLOR_MAGENTA ""
+#define COLOR_RESET ""
+#endif
+
+#ifdef LINES
+#define FILE_MSG(x) "[" << COLOR_WHITE << __FILE__ << ":" << __LINE__ << COLOR_RESET << "] " << x
+#else
+#define FILE_MSG(x) x
+#endif 
+
+/**
+ * Make a warning message
+ */
+#if defined(WARN) || defined(INFO) || defined(DEBUG)
+#define LOG_WARN(X)  std::cout << COLOR_YELLOW << "WARNI " << COLOR_RESET << FILE_MSG(X) << std::endl
+#else
+#define LOG_WARN(X)
+#endif
+
+#if defined(INFO) || defined(DEBUG)
+#define LOG_INFO(X)  std::cout << COLOR_WHITE << "INFO  " << COLOR_RESET << FILE_MSG(X) << std::endl
+#else
+#define LOG_INFO(X) 
+#endif
+
+#if defined(DEBUG)
+#define LOG_DEBUG(X) std::cout << COLOR_MAGENTA << "DEBUG " << COLOR_RESET << FILE_MSG(X) << std::endl
+#else
+#define LOG_DEBUG(X)
+#endif
+
+#define LOG_ERROR(X) std::cout << COLOR_RED << "ERROR " << COLOR_RESET << FILE_MSG(X) << std::endl
+
 class IBufferPipe;
 
 class IBufferPipeObserver {

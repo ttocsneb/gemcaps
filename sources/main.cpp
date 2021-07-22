@@ -12,6 +12,7 @@
 #include "server.hpp"
 #include "manager.hpp"
 #include "gemcaps/settings.hpp"
+#include "gemcaps/util.hpp"
 
 namespace fs = std::filesystem;
 
@@ -26,6 +27,12 @@ using std::endl;
 
 
 int main(int argc, char *argv[]) {
+    LOG_DEBUG("This is a debug message");
+    LOG_INFO("Hello World");
+    LOG_WARN("Warning Warning");
+    LOG_ERROR("SOMETHIGN BAD HAPPENDED!");
+    return 1;
+
 #ifndef WIN32
     // prevent sigpipe from killing the server
     signal(SIGPIPE, SIG_IGN);
