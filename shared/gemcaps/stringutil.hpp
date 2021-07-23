@@ -2,6 +2,7 @@
 #define __GEMCAPS_SHARED_STRINGUTIL__
 
 #include <cstddef>
+#include <iostream>
 
 /**
  * A String Literal Builder. This can be used to generate string literals at compile time.
@@ -34,6 +35,11 @@ struct StringLiteral {
             ++i;
         }
         buf[start + i] = '\0';
+    }
+
+    template<size_t s>
+    constexpr void append(StringLiteral<s> literal) noexcept {
+        append(literal.buf);
     }
 
     /**
@@ -69,6 +75,12 @@ struct StringLiteral {
         }
         buf[start + pos] = '\0';
     }
+
 };
+
+template<size_t Size>
+std::ostream &operator<<(std::ostream &os, const StringLiteral<Size> rhs) {
+    return os << rhs.buf;
+}
 
 #endif

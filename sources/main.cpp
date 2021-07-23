@@ -12,7 +12,7 @@
 #include "server.hpp"
 #include "manager.hpp"
 #include "gemcaps/settings.hpp"
-#include "gemcaps/util.hpp"
+#include "gemcaps/log.hpp"
 
 namespace fs = std::filesystem;
 
@@ -27,6 +27,10 @@ using std::endl;
 
 
 int main(int argc, char *argv[]) {
+    log::set_mode(log::DEBUG);
+    log::enable_colors(true);
+    log::set_verbose(true);
+
     LOG_DEBUG("This is a debug message");
     LOG_INFO("Hello World");
     LOG_WARN("Warning Warning");

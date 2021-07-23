@@ -7,7 +7,7 @@
 
 #include <uv.h>
 
-#include "gemcaps/util.hpp"
+#include "gemcaps/log.hpp"
 
 using std::string;
 using std::vector;
