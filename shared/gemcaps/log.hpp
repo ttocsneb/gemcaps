@@ -5,10 +5,10 @@
 
 #include "gemcaps/stringutil.hpp"
 
-#define LOG_DEBUG(x) log::debug(__FILE__, __LINE__) << x << std::endl
-#define LOG_INFO(x) log::info(__FILE__, __LINE__) << x << std::endl
-#define LOG_WARN(x) log::warn(__FILE__, __LINE__) << x << std::endl
-#define LOG_ERROR(x) log::error(__FILE__, __LINE__) << x << std::endl
+#define LOG_DEBUG(x) logging::debug(__FILE__, __LINE__) << x << std::endl
+#define LOG_INFO(x) logging::info(__FILE__, __LINE__) << x << std::endl
+#define LOG_WARN(x) logging::warn(__FILE__, __LINE__) << x << std::endl
+#define LOG_ERROR(x) logging::error(__FILE__, __LINE__) << x << std::endl
 
 namespace color {
 
@@ -60,14 +60,18 @@ constexpr const auto reversed = getStyle(REVERSED);
 }
 
 
-namespace log {
+namespace logging {
+
+#ifdef ERROR
+#undef ERROR
+#endif
 
 enum Mode {
-    NONE = 0,
-    ERROR = 10,
-    WARN = 20,
-    INFO = 30,
-    DEBUG = 40
+	NONE = 0,
+	ERROR = 10,
+	WARN = 20,
+	INFO = 30,
+	DEBUG = 40
 };
 
 /**
@@ -141,7 +145,6 @@ std::ostream &info(const char *file, int line);
  * @return the stream to debug
  */
 std::ostream &error(const char *file, int line);
-
 
 }
 

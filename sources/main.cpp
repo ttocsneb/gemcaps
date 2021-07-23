@@ -44,33 +44,33 @@ int main(int argc, const char **argv) {
     if (args.count("mode")) {
         string mode = args.at("mode");
         if (mode == "debug") {
-            log::set_mode(log::DEBUG);
+            logging::set_mode(logging::DEBUG);
         } else if (mode == "info") {
-            log::set_mode(log::INFO);
+            logging::set_mode(logging::INFO);
         } else if (mode == "warn") {
-            log::set_mode(log::WARN);
+            logging::set_mode(logging::WARN);
         } else if (mode == "error") {
-            log::set_mode(log::ERROR);
+            logging::set_mode(logging::ERROR);
         } else if (mode == "none") {
-            log::set_mode(log::NONE);
+            logging::set_mode(logging::NONE);
         }
     }
 
     if (args.count("colors")) {
         string colors = args.at("colors");
         if (colors.front() == 'y') {
-            log::enable_colors(true);
+            logging::enable_colors(true);
         } else if (colors.front() == 'n') {
-            log::enable_colors(false);
+            logging::enable_colors(false);
         }
     }
 
     if (args.count("verbose")) {
         string verbose = args.at("verbose");
         if (verbose.front() == 'y') {
-            log::set_verbose(true);
+            logging::set_verbose(true);
         } else if (verbose.front() == 'n') {
-            log::set_verbose(false);
+            logging::set_verbose(false);
         }
     }
 

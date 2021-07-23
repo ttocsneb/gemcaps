@@ -1,6 +1,6 @@
 #include "gemcaps/log.hpp"
 
-using namespace log;
+using namespace logging;
 
 using std::ostream;
 
@@ -10,23 +10,23 @@ Mode current_mode = INFO;
 
 ostream empty(0);
 
-void log::enable_colors(bool enable) {
+void logging::enable_colors(bool enable) {
     colors_enabled = enable;
 }
 
-void log::set_mode(Mode mode) {
+void logging::set_mode(Mode mode) {
     current_mode = mode;
 }
 
-void log::set_verbose(bool enable) {
+void logging::set_verbose(bool enable) {
     verbose_enabled = enable;
 }
 
-Mode log::get_mode() {
+Mode logging::get_mode() {
     return current_mode;
 }
 
-bool log::is_enabled(Mode mode) {
+bool logging::is_enabled(Mode mode) {
     return current_mode >= mode;
 }
 
@@ -64,7 +64,7 @@ void print_tag(ostream &os, const char *tag, const char *colortag, const char *f
     if (verbose_enabled) print_verbose(os, file, line);
 }
 
-ostream &log::debug(const char *file, int line) {
+ostream &logging::debug(const char *file, int line) {
     if (!is_enabled(DEBUG)) {
         return empty;
     }
@@ -74,7 +74,7 @@ ostream &log::debug(const char *file, int line) {
     return std::cout;
 }
 
-ostream &log::warn(const char *file, int line) {
+ostream &logging::warn(const char *file, int line) {
     if (!is_enabled(WARN)) {
         return empty;
     }
@@ -84,7 +84,7 @@ ostream &log::warn(const char *file, int line) {
     return std::cout;
 }
 
-ostream &log::info(const char *file, int line) {
+ostream &logging::info(const char *file, int line) {
     if (!is_enabled(INFO)) {
         return empty;
     }
@@ -94,7 +94,7 @@ ostream &log::info(const char *file, int line) {
     return std::cout;
 }
 
-ostream &log::error(const char *file, int line) {
+ostream &logging::error(const char *file, int line) {
     if (!is_enabled(ERROR)) {
         return empty;
     }
