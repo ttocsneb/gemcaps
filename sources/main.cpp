@@ -13,6 +13,7 @@
 #include "manager.hpp"
 #include "gemcaps/settings.hpp"
 #include "gemcaps/log.hpp"
+#include "params.hpp"
 
 namespace fs = std::filesystem;
 
@@ -26,10 +27,52 @@ using std::cerr;
 using std::endl;
 
 
-int main(int argc, char *argv[]) {
-    log::set_mode(log::DEBUG);
-    log::enable_colors(true);
-    log::set_verbose(true);
+int main(int argc, const char **argv) {
+    ArgParse parser;
+    parser.addParam("mode", "m");
+    parser.addParam("colors", "c");
+    parser.addParam("verbose", "v");
+
+    phmap::flat_hash_map<string, string> args;    
+    try {
+        args = parser.parseArgs(argv + 1, argc - 1);
+    } catch (std::exception &e) {
+        LOG_ERROR("Invalid arguments: " << color::getColor(color::RED) << e.what() << color::reset);
+        return 1;
+    }
+
+    if (args.count("mode")) {
+        string mode = args.at("mode");
+        if (mode == "debug") {
+            log::set_mode(log::DEBUG);
+        } else if (mode == "info") {
+            log::set_mode(log::INFO);
+        } else if (mode == "warn") {
+            log::set_mode(log::WARN);
+        } else if (mode == "error") {
+            log::set_mode(log::ERROR);
+        } else if (mode == "none") {
+            log::set_mode(log::NONE);
+        }
+    }
+
+    if (args.count("colors")) {
+        string colors = args.at("colors");
+        if (colors.front() == 'y') {
+            log::enable_colors(true);
+        } else if (colors.front() == 'n') {
+            log::enable_colors(false);
+        }
+    }
+
+    if (args.count("verbose")) {
+        string verbose = args.at("verbose");
+        if (verbose.front() == 'y') {
+            log::set_verbose(true);
+        } else if (verbose.front() == 'n') {
+            log::set_verbose(false);
+        }
+    }
 
     LOG_DEBUG("This is a debug message");
     LOG_INFO("Hello World");
