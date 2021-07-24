@@ -82,6 +82,8 @@ public:
 
     void setContext(ClientContext *context) noexcept { this->context = context; }
     ClientContext *getContext() const noexcept { return context; }
+
+    SSLServer *getServer() noexcept { return server; }
 };
 
 class ServerContext {
@@ -94,7 +96,7 @@ private:
     WOLFSSL_CTX *wolfssl = nullptr;
     uv_tcp_t *server = nullptr;
     
-    std::shared_ptr<ServerContext> context;
+    ServerContext *context;
 
     phmap::flat_hash_set<SSLClient *> clients;
 
@@ -113,7 +115,7 @@ public:
 
     void listen() noexcept;
 
-    void setContext(std::shared_ptr<ServerContext> context) { this->context = context; }
+    void setContext(ServerContext *context) { this->context = context; }
 
     bool isLoaded() const noexcept { return wolfssl != nullptr; }
 };

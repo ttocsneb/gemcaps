@@ -22,6 +22,7 @@
 
 
 inline const std::string NAME = "name";
+inline const std::string SERVER = "server";
 
 class Manager;
 
@@ -59,9 +60,8 @@ private:
         Request request;
         BufferPipe body;
     };
-
-    std::vector<std::shared_ptr<Handler>> handlers;
     phmap::flat_hash_map<std::string, std::shared_ptr<SSLServer>> servers;
+    phmap::flat_hash_map<SSLServer *, std::vector<std::shared_ptr<Handler>>> handlers;
 
     phmap::flat_hash_map<SSLClient *, std::unique_ptr<GeminiConnection>> requests;
 public:

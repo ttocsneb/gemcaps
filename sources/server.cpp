@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "gemcaps/uvutils.hpp"
+#include "gemcaps/log.hpp"
 
 using std::vector;
 
@@ -237,6 +238,7 @@ bool SSLClient::is_open() const noexcept {
 }
 
 void SSLClient::close() noexcept {
+    LOG_DEBUG("The client is closing");
     if (queued_writes > 0 && !queued_close) {
         queued_close = true;
         return;
@@ -250,6 +252,7 @@ void SSLClient::close() noexcept {
 }
 
 void SSLClient::crash() noexcept {
+    LOG_DEBUG("The client has crashed");
     queued_close = false;
     closing = true;
     uv_timer_stop(timeout);
@@ -270,6 +273,8 @@ void SSLServer::__on_accept(uv_stream_t *stream, int status) noexcept {
         return;
     }
 
+    LOG_DEBUG("A new connection has been accepted");
+
     uv_tcp_t *conn = tcp_allocator.allocate();
     uv_tcp_init(stream->loop, conn);
     if (uv_accept(stream, (uv_stream_t *)conn) != 0) {
@@ -281,7 +286,12 @@ void SSLServer::__on_accept(uv_stream_t *stream, int status) noexcept {
     SSLClient *client = *server->clients.insert(new SSLClient(server, conn, ssl)).first;
     wolfSSL_SetIOReadCtx(ssl, client);
     wolfSSL_SetIOWriteCtx(ssl, client);
-    server->context->on_accept(server, client);
+    if (server->context) {
+        server->context->on_accept(server, client);
+    } else {
+        LOG_ERROR("No context has been set for the server");
+        client->crash();
+    }
 }
 
 int SSLServer::__send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {

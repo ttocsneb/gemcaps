@@ -10,6 +10,8 @@
 
 using std::string;
 using std::make_unique;
+using std::vector;
+using std::shared_ptr;
 
 using std::cerr;
 using std::endl;
@@ -88,9 +90,10 @@ void Manager::loadServers(string config_dir) noexcept {
         YAML::Node node = YAML::LoadFile(filename);
         try {
             auto server = loadServer(node, config_dir, loop);
+            server->setContext(this);
 			string name = getProperty<string>(node, NAME);
             servers.insert({name, server});
-			LOG_INFO("Loaded server '" << name << "'");
+			LOG_INFO("Loaded server '" << filename << "'");
         } catch (InvalidSettingsException e) {
             LOG_ERROR("[Manager::loadServers] while loading " << e.getMessage(filename));
         }
@@ -127,7 +130,18 @@ void Manager::loadHandlers(string config_dir) noexcept {
         YAML::Node node = YAML::LoadFile(filename);
         try {
             auto handler = loader.loadHandler(node, config_dir);
-            handlers.push_back(handler);
+            string server = getProperty<string>(node, SERVER);
+            auto found = servers.find(server);
+            if (found == servers.end()) {
+                throw InvalidSettingsException(node[SERVER].Mark(), "The server '" + server + "' does not exist");
+            }
+            auto serverHandlers = handlers.find(found->second.get());
+            if (serverHandlers == handlers.end()) {
+                // Create an empty vector if it didn't already exist
+                serverHandlers = handlers.insert({found->second.get(), vector<shared_ptr<Handler>>()}).first;
+            }
+            serverHandlers->second.push_back(handler);
+            LOG_INFO("Loaded handler '" << filename << "'");
         } catch (InvalidSettingsException e) {
             LOG_ERROR("[Manager::loadHandlers] while loading " << e.getMessage(filename));
         }
@@ -142,6 +156,7 @@ void Manager::startServers() noexcept {
     for (auto server : servers) {
         server.second->listen();
     }
+    LOG_INFO("Started servers");
 }
 
 void Manager::on_accept(SSLServer *server, SSLClient *client) noexcept {
@@ -302,8 +317,14 @@ void Manager::on_read(SSLClient *client) noexcept {
     }
 
     // Figure out which handler should process the manager
+    auto foundHandlers = handlers.find(client->getServer());
+    if (foundHandlers == handlers.end()) {
+        LOG_ERROR("Could not find handlers for the requested server!");
+        client->crash();
+        return;
+    }
 
-    for (auto handler : handlers) {
+    for (auto handler : foundHandlers->second) {
         if (handler->shouldHandle(request.host, request.path)) {
             client->setTimeout(30000);
             handler->handle(gemini);

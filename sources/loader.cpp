@@ -2,6 +2,7 @@
 
 #include "gemcaps/settings.hpp"
 #include "gemcaps/pathutils.hpp"
+#include "filehandler.hpp"
 
 using std::shared_ptr;
 using std::make_shared;
@@ -34,7 +35,7 @@ shared_ptr<SSLServer> loadServer(YAML::Node settings, string dir, uv_loop_t *loo
 }
 
 void HandlerLoader::loadFactories() noexcept {
-    // TODO Load factories
+    factories.insert({"filehandler", make_shared<FileHandlerFactory>()});
 }
 
 shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings, string dir) {
