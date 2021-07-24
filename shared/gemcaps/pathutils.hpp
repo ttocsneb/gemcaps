@@ -76,6 +76,14 @@ std::string relpath(std::string path, std::string rel) noexcept;
  * @note This will not take symlinks into account
  */
 std::string delUps(std::string path) noexcept;
+/**
+ * Check if a path is relative
+ * 
+ * @param path path
+ * 
+ * @return whether the path is relative
+ */
+bool isrel(std::string path) noexcept;
 }
 
 #endif

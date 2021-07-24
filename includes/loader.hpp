@@ -25,7 +25,7 @@ inline const std::string HANDLER = "handler";
  * 
  * @return the loaded server
  */
-std::shared_ptr<SSLServer> loadServer(YAML::Node settings, uv_loop_t *loop = nullptr);
+std::shared_ptr<SSLServer> loadServer(YAML::Node settings, std::string dir, uv_loop_t *loop = nullptr);
 
 class HandlerLoader {
 private:
@@ -43,7 +43,7 @@ public:
      * 
      * @return the loaded handler
      */
-    std::shared_ptr<Handler> loadHandler(YAML::Node settings);
+    std::shared_ptr<Handler> loadHandler(YAML::Node settings, std::string dir);
 };
 
 #endif

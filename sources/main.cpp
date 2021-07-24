@@ -14,6 +14,7 @@
 #include "gemcaps/settings.hpp"
 #include "gemcaps/log.hpp"
 #include "params.hpp"
+#include "gemcaps/pathutils.hpp"
 
 namespace fs = std::filesystem;
 
@@ -29,9 +30,10 @@ using std::endl;
 
 int main(int argc, const char **argv) {
     ArgParse parser;
-    parser.addParam("mode", "m");
-    parser.addParam("colors", "c");
+    parser.addParam("log", "l");
+    parser.addParam("colors");
     parser.addParam("verbose", "v");
+    parser.addParam("config", "c");
 
     phmap::flat_hash_map<string, string> args;    
     try {
@@ -41,17 +43,17 @@ int main(int argc, const char **argv) {
         return 1;
     }
 
-    if (args.count("mode")) {
-        string mode = args.at("mode");
-        if (mode == "debug") {
+    if (args.count("log")) {
+        string mode = args.at("log");
+        if (mode.front() == 'd') {
             logging::set_mode(logging::DEBUG);
-        } else if (mode == "info") {
+        } else if (mode.front() == 'i') {
             logging::set_mode(logging::INFO);
-        } else if (mode == "warn") {
+        } else if (mode.front() == 'w') {
             logging::set_mode(logging::WARN);
-        } else if (mode == "error") {
+        } else if (mode.front() == 'e') {
             logging::set_mode(logging::ERROR);
-        } else if (mode == "none") {
+        } else if (mode.front() == 'n') {
             logging::set_mode(logging::NONE);
         }
     }
@@ -74,12 +76,6 @@ int main(int argc, const char **argv) {
         }
     }
 
-    LOG_DEBUG("This is a debug message");
-    LOG_INFO("Hello World");
-    LOG_WARN("Warning Warning");
-    LOG_ERROR("SOMETHIGN BAD HAPPENDED!");
-    return 1;
-
 #ifndef WIN32
     // prevent sigpipe from killing the server
     signal(SIGPIPE, SIG_IGN);
@@ -87,9 +83,23 @@ int main(int argc, const char **argv) {
 
     wolfSSL_Init();
 
+    char cwd[1024];
+    size_t cwd_size = 1024;
+    uv_cwd(cwd, &cwd_size);
+
+    string config = cwd;
+    if (args.count("config")) {
+        string conf_path = args.at("config");
+        if (path::isrel(conf_path)) {
+            config = path::join(config, conf_path);
+        } else {
+            config = conf_path;
+        }
+    }
+
     Manager manager;
-    manager.loadServers("servers"); // TODO use propper config file
-    manager.loadHandlers("handlers"); // TODO use propper config file
+    manager.loadServers(path::join(config, "servers"));
+    manager.loadHandlers(path::join(config, "handlers"));
     manager.startServers();
 
     int ret = uv_run(uv_default_loop(), UV_RUN_DEFAULT);

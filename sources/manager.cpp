@@ -6,6 +6,8 @@
 
 #include "loader.hpp"
 
+#include "gemcaps/log.hpp"
+
 using std::string;
 using std::make_unique;
 
@@ -34,7 +36,7 @@ bool is_yaml(uv_dirent_t *entry) {
     for (int i = 0; i < ext.length(); ++i) {
         ext[i] = tolower(ext[i]);
     }
-    return ext == "yml" || ext == "yaml";
+    return ext == ".yml" || ext == ".yaml";
 }
 
 
@@ -72,7 +74,7 @@ void Manager::loadServers(string config_dir) noexcept {
     uv_fs_scandir(loop, &scan_req, config_dir.c_str(), 0, nullptr);
     
     if (scan_req.result < 0) {
-        cerr << "Error [Manager::loadServers] " << uv_strerror(scan_req.result) << endl;
+        LOG_ERROR("[Manager::loadServers] Could not read from '" << config_dir << "': " << uv_strerror(scan_req.result));
         return;
     }
 
@@ -85,13 +87,16 @@ void Manager::loadServers(string config_dir) noexcept {
 
         YAML::Node node = YAML::LoadFile(filename);
         try {
-            auto server = loadServer(node, loop);
+            auto server = loadServer(node, config_dir, loop);
             servers.insert({getProperty<string>(node, NAME), server});
         } catch (InvalidSettingsException e) {
-            cerr << "Error [Manager::loadServers] while loading " << e.getMessage(filename) << endl;
+            LOG_ERROR("[Manager::loadServers] while loading " << e.getMessage(filename));
         }
     }
-    
+
+    if (servers.empty()) {
+        LOG_WARN("[Manager::loadServers] No servers were loaded");
+    }
 }
 
 void Manager::loadHandlers(string config_dir) noexcept {
@@ -106,7 +111,7 @@ void Manager::loadHandlers(string config_dir) noexcept {
     uv_fs_scandir(loop, &scan_req, config_dir.c_str(), 0, nullptr);
     
     if (scan_req.result < 0) {
-        cerr << "Error [Manager::loadServers] " << uv_strerror(scan_req.result) << endl;
+        LOG_ERROR("[Manager::loadHandlers] Could not read from '" << config_dir << "': " << uv_strerror(scan_req.result));
         return;
     }
 
@@ -119,11 +124,15 @@ void Manager::loadHandlers(string config_dir) noexcept {
 
         YAML::Node node = YAML::LoadFile(filename);
         try {
-            auto handler = loader.loadHandler(node);
+            auto handler = loader.loadHandler(node, config_dir);
             handlers.push_back(handler);
         } catch (InvalidSettingsException e) {
-            cerr << "Error [Manager::loadHandlers] while loading " << e.getMessage(filename) << endl;
+            LOG_ERROR("[Manager::loadHandlers] while loading " << e.getMessage(filename));
         }
+    }
+
+    if (handlers.empty()) {
+        LOG_WARN("[Manager::loadHandlers] No handlers were loaded");
     }
 }
 

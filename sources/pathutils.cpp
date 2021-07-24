@@ -162,3 +162,15 @@ string path::delUps(string path) noexcept {
 
     return join(parts);
 }
+
+bool path::isrel(string path) noexcept {
+    if (path.front() == '/' || path.front() == '\\') {
+        return false;
+    }
+#ifdef WIN32
+    if (isalpha(path.front()) && path.substr(1).rfind(":\\", 0) != string::npos) {
+        return false;
+    }
+#endif
+    return true;
+}

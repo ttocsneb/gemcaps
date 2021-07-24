@@ -1,0 +1,3 @@
+name: main
+cert: ../cert.pem
+key: ../key.pem

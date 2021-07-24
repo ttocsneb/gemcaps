@@ -1,13 +1,14 @@
 #include "loader.hpp"
 
 #include "gemcaps/settings.hpp"
+#include "gemcaps/pathutils.hpp"
 
 using std::shared_ptr;
 using std::make_shared;
 using std::string;
 
 
-shared_ptr<SSLServer> loadServer(YAML::Node settings, uv_loop_t *loop) {
+shared_ptr<SSLServer> loadServer(YAML::Node settings, string dir, uv_loop_t *loop) {
     shared_ptr<SSLServer> server = make_shared<SSLServer>();
 
     if (loop == nullptr) {
@@ -20,6 +21,13 @@ shared_ptr<SSLServer> loadServer(YAML::Node settings, uv_loop_t *loop) {
     string cert = getProperty<string>(settings, CERT);
     string key = getProperty<string>(settings, KEY);
 
+    if (path::isrel(cert)) {
+        cert = path::join(dir, cert);
+    }
+    if (path::isrel(key)) {
+        key = path::join(dir, key);
+    }
+
     server->load(loop, host, port, cert, key);
 
     return server;
@@ -29,7 +37,7 @@ void HandlerLoader::loadFactories() noexcept {
     // TODO Load factories
 }
 
-shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings) {
+shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings, string dir) {
     string handlerName = getProperty<string>(settings, HANDLER);
 
     auto factory = factories.find(handlerName);
