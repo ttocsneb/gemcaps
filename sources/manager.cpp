@@ -88,7 +88,9 @@ void Manager::loadServers(string config_dir) noexcept {
         YAML::Node node = YAML::LoadFile(filename);
         try {
             auto server = loadServer(node, config_dir, loop);
-            servers.insert({getProperty<string>(node, NAME), server});
+			string name = getProperty<string>(node, NAME);
+            servers.insert({name, server});
+			LOG_INFO("Loaded server '" << name << "'");
         } catch (InvalidSettingsException e) {
             LOG_ERROR("[Manager::loadServers] while loading " << e.getMessage(filename));
         }

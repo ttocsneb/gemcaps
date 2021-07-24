@@ -91,7 +91,7 @@ int main(int argc, const char **argv) {
     if (args.count("config")) {
         string conf_path = args.at("config");
         if (path::isrel(conf_path)) {
-            config = path::join(config, conf_path);
+            config = path::delUps(path::join(config, conf_path));
         } else {
             config = conf_path;
         }
