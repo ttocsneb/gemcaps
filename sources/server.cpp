@@ -35,11 +35,11 @@ int SSLClient::_send(const char *buf, int size) noexcept {
 
     while (pos < size) {
         uv_buf_t buffer = buffer_allocate();
-        buffers.push_back(buffer);
         int len = (size - pos) > buffer.len ? buffer.len : size - pos;
         memcpy(buffer.base, buf + pos, len);
         buffer.len = len;
         pos += len;
+        buffers.push_back(buffer);
     }
 
     uv_buf_t *data = new uv_buf_t[buffers.size()];
@@ -261,6 +261,16 @@ void SSLClient::crash() noexcept {
     }
 }
 
+int SSLClient::getSSLErrorNumber(int result) const noexcept {
+    return wolfSSL_get_error(ssl, result);
+}
+
+std::string SSLClient::getSSLErrorString(int result) const noexcept {
+    char err[80];
+    wolfSSL_ERR_error_string(getSSLErrorNumber(result), err);
+    return std::string(err);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Server
@@ -320,8 +330,6 @@ int SSLServer::__recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
         return WOLFSSL_CBIO_ERR_WANT_READ;
     }
     return client->_recv(size, buf);
-
-    return client->buffer.read(size, buf);
 }
 
 void SSLServer::_on_client_close(SSLClient *client) noexcept {

@@ -162,7 +162,7 @@ void Manager::startServers() noexcept {
 void Manager::on_accept(SSLServer *server, SSLClient *client) noexcept {
     requests.insert({client, make_unique<GeminiConnection>(this, client)});
     client->setContext(this);
-    client->setTimeout(1000);
+    // client->setTimeout(1000);
     client->listen();
 }
 
@@ -283,9 +283,11 @@ void Manager::on_read(SSLClient *client) noexcept {
     Request &request = gemini->getRequest();
     int read = client->read(1024, buf);
     if (read < 0) {
-        if (read == WOLFSSL_ERROR_WANT_READ || read == WOLFSSL_ERROR_WANT_WRITE) {
+        int err = client->getSSLErrorNumber(read);
+        if (err == WOLFSSL_ERROR_WANT_READ || err == WOLFSSL_ERROR_WANT_WRITE) {
             return;
         }
+        LOG_ERROR("There was an error during the TLS handshake: " << client->getSSLErrorString(read));
         // There was probably an error while performing the handshake, so crash the connection
         client->crash();
         return;

@@ -80,6 +80,9 @@ public:
     void close() noexcept;
     void crash() noexcept;
 
+    int getSSLErrorNumber(int result) const noexcept;
+    std::string getSSLErrorString(int result) const noexcept;
+
     void setContext(ClientContext *context) noexcept { this->context = context; }
     ClientContext *getContext() const noexcept { return context; }
 

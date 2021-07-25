@@ -20,6 +20,9 @@ string path::join(string root, string path) noexcept {
 }
 
 string path::join(vector<string> paths, string join) noexcept {
+    if (paths.empty()) {
+        return "";
+    }
     ostringstream oss;
     for (auto it = paths.begin(); it != paths.end() - 1; ++it) {
         oss << *it << join;
