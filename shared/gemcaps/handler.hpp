@@ -148,10 +148,11 @@ public:
      * Create a handler from the given settings
      * 
      * @param settings settings to use to create a new handler
+     * @param dir the directory where relative files should begin
      * 
      * @return the newly created handler
      */
-    virtual std::shared_ptr<Handler> createHandler(YAML::Node settings) = 0;
+    virtual std::shared_ptr<Handler> createHandler(YAML::Node settings, std::string dir) = 0;
 };
 
 #endif

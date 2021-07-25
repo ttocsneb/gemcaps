@@ -46,5 +46,5 @@ shared_ptr<Handler> HandlerLoader::loadHandler(YAML::Node settings, string dir) 
         throw InvalidSettingsException(settings[HANDLER].Mark(), "'" + handlerName + "' is not a valid handler");
     }
 
-    return factory->second->createHandler(settings);
+    return factory->second->createHandler(settings, dir);
 }

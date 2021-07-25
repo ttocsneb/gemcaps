@@ -260,8 +260,10 @@ void dir_on_scan(uv_fs_t *req) {
         if (!ctx->handler->validateFile(new_file)) {
             continue;
         }
+        ctx->file = new_file;
         uv_fs_req_cleanup(req);
         read_file(ctx);
+        return;
     }
     uv_fs_req_cleanup(req);
 
@@ -306,7 +308,7 @@ void dir_on_scan(uv_fs_t *req) {
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-shared_ptr<Handler> FileHandlerFactory::createHandler(YAML::Node settings) {
+shared_ptr<Handler> FileHandlerFactory::createHandler(YAML::Node settings, string dir) {
     string host = getProperty<string>(settings, HOST, "");
     string folder = getProperty<string>(settings, FOLDER);
     string base = getProperty<string>(settings, BASE, "");
@@ -340,6 +342,11 @@ shared_ptr<Handler> FileHandlerFactory::createHandler(YAML::Node settings) {
             throw InvalidSettingsException(e.mark, e.msg);
         }
     }
+
+    if (path::isrel(folder)) {
+        folder = path::join(dir, folder);
+    }
+    folder = path::delUps(folder);
 
     return make_shared<FileHandler>(
         host,

@@ -7,9 +7,7 @@
 
 using std::vector;
 
-using std::cerr;
 using std::endl;
-
 
 ReusableAllocator<uv_tcp_t> tcp_allocator;
 
@@ -335,7 +333,7 @@ int SSLServer::__recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept {
 void SSLServer::_on_client_close(SSLClient *client) noexcept {
     auto found = clients.find(client);
     if (found == clients.end()) {
-        cerr << "Warn [SSLServer::_on_client_close] An invalid pointer was passed" << endl;
+        LOG_WARN("[SSLServer::_on_client_close] An invalid pointer was passed");
         return;
     }
     clients.erase(found);
@@ -367,13 +365,13 @@ void SSLServer::load(uv_loop_t *loop, const std::string &host, int port, const s
 
     // Load the certificates
     if (wolfSSL_CTX_use_certificate_file(wolfssl, cert.c_str(), SSL_FILETYPE_PEM) != SSL_SUCCESS) {
-        cerr << "Error [SSLServer::load] Could not load certificate file '" << cert << "'" << endl;
+        LOG_ERROR("[SSLServer::load] Could not load certificate file '" << cert << "'");
         wolfSSL_CTX_free(wolfssl);
         wolfssl = nullptr;
         return;
     }
     if (wolfSSL_CTX_use_PrivateKey_file(wolfssl, key.c_str(), SSL_FILETYPE_PEM) != SSL_SUCCESS) {
-        cerr << "Error [SSLServer::load] Could not load key file '" << key << "'" << endl;
+        LOG_ERROR("[SSLServer::load] Could not load key file '" << key << "'");
         wolfSSL_CTX_free(wolfssl);
         wolfssl = nullptr;
         return;
@@ -393,7 +391,7 @@ void SSLServer::load(uv_loop_t *loop, const std::string &host, int port, const s
     uv_ip4_addr(host.c_str(), port, &addr);
     int error = uv_tcp_bind(server, (const sockaddr *)&addr, 0);
     if (error != 0) {
-        cerr << "Error [SSLServer::load] Could not bind to '" << host << ":" << port << "': " << uv_strerror(error) << endl;
+        LOG_ERROR("[SSLServer::load] Could not bind to '" << host << ":" << port << "': " << uv_strerror(error));
         wolfSSL_CTX_free(wolfssl);
         wolfssl = nullptr;
         uv_close((uv_handle_t *)server, on_tcp_close);
@@ -405,7 +403,7 @@ void SSLServer::load(uv_loop_t *loop, const std::string &host, int port, const s
 void SSLServer::listen() noexcept {
     int error = uv_listen((uv_stream_t *)server, 5, __on_accept);
     if (error != 0) {
-        cerr << "Error [SSLServer::load] Could not start listening: " << uv_strerror(error) << endl;
+        LOG_ERROR("[SSLServer::load] Could not start listening: " << uv_strerror(error));
         wolfSSL_CTX_free(wolfssl);
         wolfssl = nullptr;
         uv_close((uv_handle_t *)server, on_tcp_close);

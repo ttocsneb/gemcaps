@@ -328,7 +328,7 @@ void Manager::on_read(SSLClient *client) noexcept {
 
     for (auto handler : foundHandlers->second) {
         if (handler->shouldHandle(request.host, request.path)) {
-            client->setTimeout(30000);
+            // client->setTimeout(30000);
             handler->handle(gemini);
             return;
         }

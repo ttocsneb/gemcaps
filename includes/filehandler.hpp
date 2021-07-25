@@ -74,7 +74,7 @@ public:
     inline static const std::string CGI_TYPES = "cgiFiletypes";
 
     // Override HandlerFactory
-    std::shared_ptr<Handler> createHandler(YAML::Node settings);
+    std::shared_ptr<Handler> createHandler(YAML::Node settings, std::string dir);
 };
 
 #endif
