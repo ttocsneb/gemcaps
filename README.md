@@ -105,21 +105,21 @@ type: object
 properties:
   name:
     description: The name of the server. This is used by handlers to define which server they respond to
-	type: string
+    type: string
   host:
     description: The hostname that the server will listen on. (only IPv4 is supported currently)
-	default: 0.0.0.0
-	type: string
+    default: 0.0.0.0
+    type: string
   port:
     description: The port that the server will listen on.
-	default: 1965
-	type: number
+    default: 1965
+    type: number
   cert:
     description: The certificate file to use for this server.
-	type: string
+    type: string
   key:
     description: The certificate key to use for this server.
-	type: string
+    type: string
 required:
 - cert
 - key
@@ -152,10 +152,10 @@ type: object
 properties:
   server:
     description: The server to attach this handler to
-	type: string
+    type: string
   handler:
     description: The handler that will be used for this configuration
-	type: string
+    type: string
  required:
  - server
  - handler
@@ -171,12 +171,12 @@ type: object
 properties:
   server:
     description: The server to attach this handler to
-	type: string
+    type: string
   handler:
     description: The handler that will be used for this configuration
-	type: string
-	enum:
-	- filehandler
+    type: string
+    enum:
+    - filehandler
   host:
     description: The hostname that the handler will accept i.e. 'localhost'
     type: string
@@ -189,12 +189,12 @@ properties:
   readDirs:
     description: Whether to read the contents of directories if no index file is present
     type: boolean
-	default: true
+    default: true
   rules:
     description: a list of regex patterns that a file would need to match in order for a client to view the file.
     type: array
-	items:
-	  description: A regex string
+    items:
+      description: A regex string
 	  type: string
   cgiFiletypes:
     description: a list of file types that may be executed as a CGI script (this is not yet implemented)
