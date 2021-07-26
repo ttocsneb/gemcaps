@@ -195,13 +195,13 @@ properties:
     type: array
     items:
       description: A regex string
-	  type: string
+      type: string
   cgiFiletypes:
     description: a list of file types that may be executed as a CGI script (this is not yet implemented)
     type: array
-	items:
-	  description: A file extension
-	  type: string
+    items:
+      description: A file extension
+      type: string
 required:
 - server
 - handler
