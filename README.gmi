@@ -2,6 +2,8 @@
 
 => gemcaps_logo.png 🖼 GemCaps Logo
 
+=> README.md 🔽 Read me in markdown
+
 GemCaps is a Gemini capsule server for the gemini protocol. It is programmed in C++ using libuv and wolfssl. It is supported on all linux/mac/windows (Any platform libuv supports). GemCaps runs asynchronously which allows for more effecient use of the processor by having fewer context switches and still allows for multiple simultaneous requests.
 
 => gemini://gemini.circumlunar.space ♊ Gemini Protocol
@@ -42,7 +44,9 @@ cmake ..
 make gemcaps
 ```
 
-Your executable will be located at `bin/gemcaps`.
+Your executable will be located at `build/bin/gemcaps`.
+
+> Note: the process may be different on windows, but you would still need cmake to build gemcaps.
 
 # Configuration
 
@@ -52,135 +56,138 @@ configuration file you will need to make is the main config file.
 
 => example/ 📂 examples
 
-## Main Configuration
+```
+files/
+ > test/
+    > test.gmi
+ > index.gmi
+handlers/
+ > files.yml
+servers/
+ > main.yml
+cert.pem
+key.pem
+```example/
+
+## Servers
+
+Server configurations define individual servers that will be run in a single instance of gemcaps.
+
+Below is a schema for server configs
 
 ```yml
-cert: path/to/cert.pem # required
-key: path/to/key.pem # required
-capsules: path/to/capsules/configuration/folder
-listen: 0.0.0.0 # The default listening ip
-port: 1965 # The default listening port
-timeout: 10 # the time (seconds) before timing out a connection (a timeout of 0 means no timeout)
-cacheSize: 50000 # the maximum size (kb) for the cache. (a size of 0 means no limit)
-```conf.yml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Server Config
+description: configure individual servers
+type: object
+properties:
+  name:
+    description: The name of the server. This is used by handlers to define which server they respond to
+	type: string
+  host:
+    description: The hostname that the server will listen on. (only IPv4 is supported currently)
+	default: 0.0.0.0
+	type: string
+  port:
+    description: The port that the server will listen on.
+	default: 1965
+	type: number
+  cert:
+    description: The certificate file to use for this server.
+	type: string
+  key:
+    description: The certificate key to use for this server.
+	type: string
+required:
+- cert
+- key
+- name
+```server config schema
 
-> Note: all relative paths in a configuration file are relative to the
-> configuration file.
->
-> In `/foo/bar/conf.yml`, the path `cheese` would point to `/foo/bar/cheese`
-
-### cert/key
-
-This is a required field.
-
-The path to the tls certificate and key file.
-
-### capsules
-
-This is a required field.
-
-The path to the capsule configurations.
-
-### listen
-
-The host to listen on.
-
-By default, this is `0.0.0.0`
-
-### port
-
-The port to listen on.
-
-By default, this is `1965`
-
-### timeout
-
-The time (in seconds) before closing a connection due to innactivity
-
-A value of `0`, means to not timeout any connection.
-
-The default value is `5` seconds.
-
-### cacheSize
-
-The maximum size (in kb) of the cache in memory.
-
-The default value is `50000` kb (50 mb).
-
-## Capsule Configurations
-
-The capsule configuration files are a bit more involved than the main config
-file. Each file can override some of the main settings to allow for listening
-on multiple ports or hosts. When a different port or host is used, you can also
-optionally specify custom certificates.
-
-Each capsule can also have handlers. Each handler will process requests
-differently. For now, only the `file` handler is available.
+### main.yml
 
 ```yml
-host: '.*'
-port: 1965
-cert: path/to/cert.pem
-key: path/to/key.pem
-handlers:
-- type: file
-  path: '/'
-  rules:
-  - '.*\.gmi$' 
-  root: '/foo/bar/www'
-  allowedDirs:
-  - '/foo/bar/www' 
-  cacheTime: 1
-  readDirs: true
-```capsule.yml
+name: main
+cert: ../cert.pem
+key: ../key.pem
+```servers/main.yml
 
-### host
-
-This is a regex that the capsule will listen for. This should not be confused with the host the server listens on. This is the host that the client requests.
-
-### port
-
-You may listen on a different port than the default port. Please keep in mind that if there are two capsules listening on the same port, they will be listening on the same 'server'.
-
-### cert/key
-
-You can also give a custom certificate file to use. Just remember that the first capsule that is created with the given port will use their certificates.
-
-If a capsule tries to load a certificate in a 'server' that is already created, then a warning will be printed out to the console.
+In this config, it defines a server by the name `main` that listens on `0.0.0.0:1965` using the certificates in the parent directory.
 
 ## Handlers
 
-### type
+Handlers are a bit more complex because they allow for extensibility based on the type of handler being defined.
 
-the type of handler to create. A list of valid types are as follows:
+Below is the base schema for all handlers, then after that will be the schema for file handlers.
 
-- file
+```yml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Base handler config
+description: base configuration for handlers
+type: object
+properties:
+  server:
+    description: The server to attach this handler to
+	type: string
+  handler:
+    description: The handler that will be used for this configuration
+	type: string
+ required:
+ - server
+ - handler
+```Base handler config schema
 
-### path
+```yml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: File handler config
+description: configuration for file handlers
+type: object
+properties:
+  server:
+    description: The server to attach this handler to
+	type: string
+  handler:
+    description: The handler that will be used for this configuration
+	type: string
+	enum:
+	- filehandler
+  host:
+    description: The hostname that the handler will accept i.e. 'localhost'
+    type: string
+  folder:
+    description: The folder that contains the files to serve
+    type: string
+  base:
+    description: The base path where the files start
+    type: string
+  readDirs:
+    description: Whether to read the contents of directories if no index file is present
+    type: boolean
+	default: true
+  rules:
+    description: a list of regex patterns that a file would need to match in order for a client to view the file.
+    type: array
+	items:
+	  description: A regex string
+	  type: string
+  cgiFiletypes:
+    description: a list of file types that may be executed as a CGI script (this is not yet implemented)
+    type: array
+	items:
+	  description: A file extension
+	  type: string
+required:
+- server
+- handler
+- folder
+```File handler config schema
 
-The path to accept requests in.
+### files.yml
 
-### rules
+```yml
+server: main
+handler: filehandler
+folder: ../files
+```handlers/files.yml
 
-This can be used if you don't want to accept all paths inside the `path` folder. It is a list of regexes where only one needs to match against a request to be accepted.
-
-### File Handler
-
-- type: `file`
-
-### root
-
-The root option is required and gives the location to read files from.
-
-### allowedDirs
-
-The allowed directories on the filesystem that the server can read from. When finding a file, `root` is added to the path in question then expands `../` and symlinks. If the resulting path is not contained within any of the allowedDirs options, then an error is sent to the client.
-
-### cacheTime
-
-The time to cache a file in seconds
-
-### readDirs
-
-If there is no `index\..*` file in a directory, then the contents of the  directory will be sent to the client. To disable this, you can set `readDirs` to false.
-
+In files.yml, this defines a handler that will serve files from the files directory to any host.

@@ -1,5 +1,3 @@
 server: main
 handler: filehandler
 folder: ../files
-readDirs: true
-host: localhost

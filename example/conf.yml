@@ -1,4 +1,0 @@
-cert: cert.pem
-key: key.pem
-capsules: capsules/
-timeout: 10
