@@ -93,7 +93,7 @@ void FileHandler::handle(ClientConnection *client) noexcept {
     // Get the absolute path of the requested file
 	const Request &request = client->getRequest();
     string file = path::delUps(request.path);
-    if (request.path.back() == '/') {
+    if (!request.path.empty() && request.path.back() == '/') {
         file = file + '/';
     }
     if (file != request.path) {
@@ -141,7 +141,7 @@ void handle_on_stat(uv_fs_t *req) {
         // The path is a directory
         uv_fs_req_cleanup(req);
 
-        if (path.back() != '/') {
+        if (path.empty() || path.back() != '/') {
             // Make sure that the path ends with a forward slash for directories
             path += '/';
             const auto header = responseHeader(RES_REDIRECT_PERM, path.c_str());
@@ -158,7 +158,7 @@ void handle_on_stat(uv_fs_t *req) {
         // The path is a file
         uv_fs_req_cleanup(req);
 
-        if (path.back() == '/') {
+        if (!path.empty() && path.back() == '/') {
             // Make sure that the path ends with a forward slash for directories
             const auto header = responseHeader(RES_REDIRECT_PERM, path.substr(0, path.length() - 1).c_str());
             ctx->client->send(header.buf);

@@ -348,7 +348,11 @@ void Manager::on_read(SSLClient *client) noexcept {
             return;
         }
     }
-    client->crash();
+
+	LOG_WARN("Unable to find handler for '" << request.host << request.path << "'");
+	constexpr auto no_handler = responseHeader(RES_SERVER_UNAVAIL, "There is no server available to take your request");
+	gemini->send(no_handler.buf, no_handler.length());
+	gemini->close();
 }
 
 void Manager::on_close(SSLClient *client) noexcept {

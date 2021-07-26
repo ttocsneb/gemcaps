@@ -9,11 +9,11 @@ using std::regex;
 using std::ostringstream;
 
 string path::join(string root, string path) noexcept {
-    if (path.front() == '/' || path.front() == '\\') {
+    if (!path.empty() && (path.front() == '/' || path.front() == '\\')) {
         path = path.substr(1);
     }
 
-    if (root.back() == '/' || root.back() == '\\') {
+    if (!root.empty() && (root.back() == '/' || root.back() == '\\')) {
         return root + path;
     }
     return root + '/' + path;
