@@ -1,4 +1,4 @@
-#include "MimeTypes.h"
+#include "gemcaps/MimeTypes.h"
 
 const char* MimeTypes::getType(const char * extension)  {
   const char *dot = strrchr(extension, '.');

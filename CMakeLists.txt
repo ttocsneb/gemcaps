@@ -4,34 +4,65 @@ project(GemCaps
     VERSION 0.1.0
 )
 
-file(GLOB_RECURSE
+SET(CMAKE_CXX_STANDARD 17)
+
+FILE(GLOB_RECURSE
     sources ${PROJECT_SOURCE_DIR}/sources/*
 )
+LIST(FILTER sources EXCLUDE REGEX ".*main.cpp$")
+SET(main_sources
+    ${PROJECT_SOURCE_DIR}/sources/main.cpp
+)
 
-SET(CMAKE_CXX_STANDARD 17)
+SET(private_includes
+    ${PROJECT_SOURCE_DIR}/includes
+)
+SET(public_includes
+    ${PROJECT_SOURCE_DIR}/shared
+    ${PROJECT_SOURCE_DIR}/lib/yaml-cpp/include
+    ${PROJECT_SOURCE_DIR}/lib/libuv/include
+    ${PROJECT_SOURCE_DIR}/lib/wolfssl
+    ${PROJECT_SOURCE_DIR}/lib/rll/include/
+    ${PROJECT_SOURCE_DIR}/lib/parallel-hashmap/
+)
 
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/yaml-cpp)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/libuv)
 add_subdirectory(${PROJECT_SOURCE_DIR}/lib/wolfssl)
 
-add_executable(gemcaps
+add_library(gemcaps_src STATIC
     ${sources}
 )
 
-target_include_directories(gemcaps PUBLIC
-    ${PROJECT_SOURCE_DIR}/includes
-    ${PROJECT_SOURCE_DIR}/lib/yaml-cpp/include
-    ${PROJECT_SOURCE_DIR}/lib/libuv/include
-    ${PROJECT_SOURCE_DIR}/lib/wolfssl
+add_executable(gemcaps
+    ${main_sources}
 )
 
-target_link_libraries(gemcaps PUBLIC
+target_include_directories(gemcaps_src PRIVATE ${private_includes})
+target_include_directories(gemcaps PRIVATE ${private_includes})
+
+target_include_directories(gemcaps_src PUBLIC ${public_includes})
+
+target_link_libraries(gemcaps_src PUBLIC
     yaml-cpp
     wolfssl
     uv
 )
 
+target_link_libraries(gemcaps PRIVATE
+    gemcaps_src
+)
+
 set_target_properties(uv PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
+set_target_properties(yaml-cpp PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
+set_target_properties(wolfssl PROPERTIES RUNTIME_OUTPUT_DIRECTORY
+	${PROJECT_BINARY_DIR}/bin
+)
+set_target_properties(gemcaps_src PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 	${PROJECT_BINARY_DIR}/bin
 )
 set_target_properties(gemcaps PROPERTIES RUNTIME_OUTPUT_DIRECTORY
@@ -39,42 +70,8 @@ set_target_properties(gemcaps PROPERTIES RUNTIME_OUTPUT_DIRECTORY
 )
 
 
-
 include(CTest)
 
-if (WIN32)
-else()
 if(CMAKE_TESTING_ENABLED)
-    list(FILTER sources EXCLUDE REGEX
-        ".*main.cpp$"
-    )
-    file(GLOB_RECURSE
-        tests ${PROJECT_SOURCE_DIR}/test/*
-    )
-
-    add_subdirectory(${PROJECT_SOURCE_DIR}/lib/googletest)
-
-    add_executable(test_gemcaps
-        ${sources}
-        ${tests}
-    )
-    target_include_directories(test_gemcaps PUBLIC
-        ${PROJECT_SOURCE_DIR}/includes
-        ${PROJECT_SOURCE_DIR}/lib/yaml-cpp/include
-        ${PROJECT_SOURCE_DIR}/lib/libuv/include
-        ${PROJECT_SOURCE_DIR}/lib/wolfssl
-        ${PROJECT_SOURCE_DIR}/lib/googletest/include
-    )
-    target_link_libraries(test_gemcaps PUBLIC
-        yaml-cpp
-        wolfssl
-        uv
-        gtest
-        gtest_main
-    )
-
-    add_test(NAME test_gemcaps
-        COMMAND ${PROJECT_BINARY_DIR}/test_gemcaps
-    )
-endif()
+    add_subdirectory(${PROJECT_SOURCE_DIR}/test)
 endif()

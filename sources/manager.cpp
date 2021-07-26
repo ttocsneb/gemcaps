@@ -1,178 +1,364 @@
 #include "manager.hpp"
 
-#include "main.hpp"
-
-#include "filehandler.hpp"
-#include "gsgihander.hpp"
-
-#include <filesystem>
 #include <iostream>
-#include <sstream>
+
+#include <yaml-cpp/yaml.h>
+
+#include "loader.hpp"
+
+#include "gemcaps/log.hpp"
 
 using std::string;
+using std::make_unique;
+using std::vector;
 using std::shared_ptr;
-using std::make_shared;
-using std::dynamic_pointer_cast;
-using std::stringstream;
 
-using std::cout;
+using std::cerr;
 using std::endl;
 
-namespace fs = std::filesystem;
-
-class RequestContext : public ClientContext {
-    Manager *manager;
-public:
-    RequestContext(Manager *manager, SSLClient *client, Cache *cache)
-        : ClientContext(manager, client, cache),
-          manager(manager) {}
-    void onDestroy() {
-        destroy_done();
+string join(string a, string b) {
+    if (a.back() == '/' || a.back() == '\\') {
+        return a + b;
     }
-    void onRead() {
-        char header[1024];
-        SSLClient *client = getClient();
-        int read = client->read(header, sizeof(header));
-        if (read < 0) {
-            if (client->wants_read()) {
-                return;
-            }
-            LOG_ERROR("WOLFSSL - " << client->get_error_string());
-            client->crash();
-            return;
-        }
-        string data(header, read);
-        buffer += string(header, read);
-        // Close the connection if the header is too big
-        if (buffer.length() > 1024) {
-            client->close();
-            return;
-        }
-        // The client hasn't sent all of the data
-        if (buffer.find('\n') == string::npos) {
-            return;
-        }
-        GeminiRequest request(buffer);
-        if (request.isValid()) {
-            manager->handle(client, request);
-            return;
-        }
-    }
-    void onWrite() {
+    return a + '/' + b;
+}
 
-    }
-};
-
-bool Handler::handleRequest(SSLClient *client, const GeminiRequest &request) {
-    const string &host = request.getHost();
-    int port = request.getPort();
-    const string &path = request.getPath();
-    if (!(this->port == port && this->host.match(host))) {
+bool is_yaml(uv_dirent_t *entry) {
+    // Assert that the entry is a file
+    if (entry->type != UV_DIRENT_FILE) {
         return false;
     }
-    if (!settings->getPathRegex().match(path)) {
+    // Assert that the file extension is yml or yaml
+    string name = entry->name;
+    size_t pos = name.rfind('.');
+    if (pos == string::npos) {
         return false;
     }
-    string new_path = path.substr(settings->getPath().length());
-    if (!settings->getRules().empty()) {
-        bool valid = false;
-        for (const auto &rule : settings->getRules()) {
-            if (rule.match(new_path)) {
-                valid = true;
-                break;
+    string ext = name.substr(pos);
+    for (int i = 0; i < ext.length(); ++i) {
+        ext[i] = tolower(ext[i]);
+    }
+    return ext == ".yml" || ext == ".yaml";
+}
+
+
+void GeminiConnection::send(const void *data, size_t length) noexcept {
+	buffer.write((const char *)data, length);
+	char buf[1024];
+	size_t read = buffer.read(1024, buf);
+
+    if (!sentHeader) {
+        string header = buf;
+        size_t found = header.find("\r\n");
+        if (found != string::npos) {
+            header = header.substr(0, found);
+        } else {
+            found = header.find('\n');
+            if (found != string::npos) {
+                header = header.substr(0, found);
             }
         }
-        if (!valid) {
+        LOG_INFO("Sending header: " << header.substr(0, found));
+        sentHeader = true;
+    }
+
+	client->write(buf, read);
+}
+
+void GeminiConnection::close() noexcept {
+	client->close();
+}
+
+void GeminiConnection::on_close(SSLClient *client) noexcept {
+	manager->on_close(client);
+}
+
+void GeminiConnection::on_write(SSLClient *client) noexcept {
+	if (buffer.ready() > 0) {
+		char buf[1024];
+		size_t read = buffer.read(1024, buf);
+		client->write(buf, read);
+	}
+}
+
+
+void Manager::loadServers(string config_dir) noexcept {
+    servers.clear();
+
+    uv_loop_t *loop = uv_default_loop();
+    uv_fs_t scan_req;
+
+    uv_fs_scandir(loop, &scan_req, config_dir.c_str(), 0, nullptr);
+    
+    if (scan_req.result < 0) {
+        LOG_ERROR("[Manager::loadServers] Could not read from '" << config_dir << "': " << uv_strerror(scan_req.result));
+        return;
+    }
+
+    uv_dirent_t entry;
+    while (uv_fs_scandir_next(&scan_req, &entry) != UV_EOF) {
+        if (!is_yaml(&entry)) {
+            continue;
+        }
+        string filename = join(config_dir, entry.name);
+
+        YAML::Node node = YAML::LoadFile(filename);
+        try {
+            auto server = loadServer(node, config_dir, loop);
+            server->setContext(this);
+			string name = getProperty<string>(node, NAME);
+            servers.insert({name, server});
+			LOG_INFO("Loaded server '" << filename << "'");
+        } catch (InvalidSettingsException e) {
+            LOG_ERROR("[Manager::loadServers] while loading " << e.getMessage(filename));
+        }
+    }
+
+    if (servers.empty()) {
+        LOG_WARN("[Manager::loadServers] No servers were loaded");
+    }
+}
+
+void Manager::loadHandlers(string config_dir) noexcept {
+    handlers.clear();
+
+    HandlerLoader loader;
+    loader.loadFactories();
+
+    uv_loop_t *loop = uv_default_loop();
+    uv_fs_t scan_req;
+
+    uv_fs_scandir(loop, &scan_req, config_dir.c_str(), 0, nullptr);
+    
+    if (scan_req.result < 0) {
+        LOG_ERROR("[Manager::loadHandlers] Could not read from '" << config_dir << "': " << uv_strerror(scan_req.result));
+        return;
+    }
+
+    uv_dirent_t entry;
+    while (uv_fs_scandir_next(&scan_req, &entry) != UV_EOF) {
+        if (!is_yaml(&entry)) {
+            continue;
+        }
+        string filename = join(config_dir, entry.name);
+
+        YAML::Node node = YAML::LoadFile(filename);
+        try {
+            auto handler = loader.loadHandler(node, config_dir);
+            string server = getProperty<string>(node, SERVER);
+            auto found = servers.find(server);
+            if (found == servers.end()) {
+                throw InvalidSettingsException(node[SERVER].Mark(), "The server '" + server + "' does not exist");
+            }
+            auto serverHandlers = handlers.find(found->second.get());
+            if (serverHandlers == handlers.end()) {
+                // Create an empty vector if it didn't already exist
+                serverHandlers = handlers.insert({found->second.get(), vector<shared_ptr<Handler>>()}).first;
+            }
+            serverHandlers->second.push_back(handler);
+            LOG_INFO("Loaded handler '" << filename << "'");
+        } catch (InvalidSettingsException e) {
+            LOG_ERROR("[Manager::loadHandlers] while loading " << e.getMessage(filename));
+        }
+    }
+
+    if (handlers.empty()) {
+        LOG_WARN("[Manager::loadHandlers] No handlers were loaded");
+    }
+}
+
+void Manager::startServers() noexcept {
+    for (auto server : servers) {
+        server.second->listen();
+    }
+    LOG_INFO("Started servers");
+}
+
+void Manager::on_accept(SSLServer *server, SSLClient *client) noexcept {
+    requests.insert({client, make_unique<GeminiConnection>(this, client)});
+    client->setContext(this);
+    // client->setTimeout(1000);
+    client->listen();
+}
+
+// These next functions for parsing a host is gross, but I guess it works
+bool parseQuery(Request *request, size_t start);
+bool parsePath(Request *request, size_t start);
+bool parsePort(Request *request, size_t start);
+bool parseHost(Request *request) {
+    size_t start = request->header.find("://");
+    if (start == string::npos) {
+        return false;
+    }
+    start += 3;
+
+    bool result = true;
+    size_t end = request->header.find(':', start);
+    if (end != string::npos) {
+        result = parsePort(request, end + 1);
+    } else {
+        request->port = 1965;
+        end = request->header.find('/', start);
+        if (end != string::npos) {
+            result = parsePath(request, end);
+        } else {
+            request->path.clear();
+            end = request->header.find('?', start);
+            if (end != string::npos) {
+                result = parseQuery(request, end);
+            } else {
+                request->query.clear();
+                end = request->header.find('\r', start);
+                if (end == string::npos) {
+                    end = request->header.find('\n', start);
+                    if (end == string::npos) {
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    if (!result) {
+        return false;
+    }
+    request->host = request->header.substr(start, end - start);
+    return true;
+}
+bool parsePort(Request *request, size_t start) {
+    bool result = true;
+    size_t end = request->header.find('/', start);
+    if (end != string::npos) {
+        result = parsePath(request, end);
+    } else {
+        request->path.clear();
+        end = request->header.find('?', start);
+        if (end != string::npos) {
+            result = parseQuery(request, end);
+        } else {
+            request->query.clear();
+            end = request->header.find('\r', start);
+            if (end == string::npos) {
+                end = request->header.find('\n', start);
+                if (end == string::npos) {
+                    return false;
+                }
+            }
+        }
+    }
+    if (result == false) {
+        return false;
+    }
+    int port = atoi(request->header.substr(start, end - start).c_str());
+    if (port <= 0 || port > 65535) {
+        return false;
+    }
+    request->port = port;
+    return true;
+}
+bool parsePath(Request *request, size_t start) {
+    bool result = true;
+    size_t end = request->header.find('?', start);
+    if (end != string::npos) {
+        result = parseQuery(request, end);
+    } else {
+        request->query.clear();
+        end = request->header.find('\r', start);
+        if (end == string::npos) {
+            end = request->header.find('\n', start);
+            if (end == string::npos) {
+                return false;
+            }
+        }
+    }
+    if (result == false) {
+        return false;
+    }
+    request->path = request->header.substr(start, end - start);
+    return true;
+}
+bool parseQuery(Request *request, size_t start) {
+    bool result = true;
+    size_t end = request->header.find('\r', start);
+    if (end == string::npos) {
+        end = request->header.find('\n', start);
+        if (end == string::npos) {
             return false;
         }
     }
-    if (shouldHandle(host, port, path)) {
-        handle(client, request, new_path);
-        return true;
+    if (result == false) {
+        return false;
     }
-    return false;
+    request->query = request->header.substr(start, end - start);
+    return true;
 }
 
-bool Manager::ServerSettings::operator<(const Manager::ServerSettings &rhs) const {
-    if (port != rhs.port) {
-        return port < rhs.port;
-    }
-    return listen < rhs.listen;
-}
-
-void Manager::load(const string &directory) {
-    for (const auto &entry : fs::directory_iterator(directory)) {
-        string ext = entry.path().extension().string();
-        if (ext == ".yml" || ext == ".yaml") {
-            loadCapsule(entry.path().string(), entry.path().filename().string());
+void Manager::on_read(SSLClient *client) noexcept {
+    char buf[1024];
+    GeminiConnection *gemini = requests[client].get();
+    Request &request = gemini->getRequest();
+    int read = client->read(1024, buf);
+    if (read < 0) {
+        int err = client->getSSLErrorNumber(read);
+        if (err == WOLFSSL_ERROR_WANT_READ || err == WOLFSSL_ERROR_WANT_WRITE) {
+            return;
         }
+        LOG_ERROR("There was an error during the TLS handshake: " << client->getSSLErrorString(read));
+        // There was probably an error while performing the handshake, so crash the connection
+        client->crash();
+        return;
     }
-}
-
-void Manager::loadCapsule(const string& filename, const string& name) {
-    CapsuleSettings settings;
-    settings.loadFile(filename);
-
-    const Regex &host = settings.getHost();
-    int port = settings.getPort();
-    const auto &confs = settings.getHandlers();
-
-    ServerSettings conf;
-    conf.listen = settings.getListen();
-    conf.port = port;
-    conf.key = settings.getKey();
-    conf.cert = settings.getCert();
-
-    if(!servers.insert(conf).second) {
-        if (!conf.key.empty() || !conf.cert.empty()) {
-            cout << "Warning: '" << name << "' tried to use a custom certificate for a host that has already been defined. This certificate will not be used!" << endl;
-        }
+    if (read > 0) {
+        request.header += string(buf, read);
     }
 
-    // Iterate through each handler's settings
-    for (auto conf : confs) {
-        // Create the handler from the settings type
-        shared_ptr<Handler> handler;
-        string type = conf->getType();
-        if (type == CapsuleSettings::TYPE_FILE) {
-            handler = make_shared<FileHandler>(
-                &cache,
-                dynamic_pointer_cast<FileSettings>(conf), 
-                host, 
-                port
-            );
-        } else if (type == CapsuleSettings::TYPE_GSGI) {
-            handler = make_shared<GSGIHandler>(
-                &cache,
-                dynamic_pointer_cast<GSGISettings>(conf), 
-                host, 
-                port
-            );
-        } else {
-            continue;
-        }
-        handlers.push_back(handler);
+    if (request.header.length() > 1024) {
+        // The header is invalid, and will be discarded
+        client->crash();
+        return;
     }
-}
 
-void Manager::handle(SSLClient *client) {
-    client->setTimeout(timeout);
-    RequestContext *context = new RequestContext(this, client, &cache);
-    _add_context(context);
-    client->setContext(context);
-}
+    size_t pos = request.header.find('\n');
+    if (pos == string::npos) {
+        // The header isn't finished yet, wait for more data
+        return;
+    }
 
-void Manager::handle(SSLClient *client, GeminiRequest request) {
-    const string &host = request.getHost();
-    const string &path = request.getPath();
-    int port = request.getPort();
-    for (shared_ptr<Handler> handler : handlers) {
-        if (handler->handleRequest(client, request)) {
+    // The request is finished
+    client->stop_listening();
+    request.header = request.header.substr(0, pos + 1);
+
+    // Parse the header
+    if (!parseHost(&request)) {
+        client->crash();
+        return;
+    }
+
+    // Figure out which handler should process the manager
+    auto foundHandlers = handlers.find(client->getServer());
+    if (foundHandlers == handlers.end()) {
+        LOG_ERROR("Could not find handlers for the requested server!");
+        client->crash();
+        return;
+    }
+
+    for (auto handler : foundHandlers->second) {
+        if (handler->shouldHandle(request.host, request.path)) {
+            // client->setTimeout(30000);
+            handler->handle(gemini);
             return;
         }
     }
-    static const string error("50 There is no server available to process your request\r\n");
-    client->write(error.c_str(), error.length());
-    client->close();
-    return;
+
+	LOG_WARN("Unable to find handler for '" << request.host << request.path << "'");
+	constexpr auto no_handler = responseHeader(RES_SERVER_UNAVAIL, "There is no server available to take your request");
+	gemini->send(no_handler.buf, no_handler.length());
+	gemini->close();
+}
+
+void Manager::on_close(SSLClient *client) noexcept {
+    auto found = requests.find(client);
+    if (found == requests.end()) {
+        return;
+    }
+    requests.erase(found);
 }

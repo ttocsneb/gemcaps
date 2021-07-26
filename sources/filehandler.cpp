@@ -1,425 +1,385 @@
 #include "filehandler.hpp"
-#include "main.hpp"
 
-#include "MimeTypes.h"
-
-#include <filesystem>
 #include <sstream>
-#include <iostream>
-#include <functional>
 
-namespace fs = std::filesystem;
+#include <uv.h>
 
-using std::cout;
-using std::cerr;
-using std::endl;
-using std::ostringstream;
+#include "gemcaps/util.hpp"
+#include "gemcaps/uvutils.hpp"
+#include "gemcaps/pathutils.hpp"
+#include "gemcaps/MimeTypes.h"
+#include "gemcaps/log.hpp"
+
+
+using std::shared_ptr;
+using std::make_shared;
 using std::string;
-using std::map;
-using std::hash;
+using std::vector;
+using std::regex;
+using std::ostringstream;
 
-MimeTypes mimetypes;
+namespace re_consts = std::regex_constants;
 
-////////// FileContext handlers //////////
+constexpr const auto ILLEGAL_FILE = responseHeader<32>(RES_NOT_FOUND, "Illegal File");
+constexpr const auto DOES_NOT_EXIST = responseHeader<32>(RES_NOT_FOUND, "File does not exist");
+constexpr const auto FILE_NOT_OPEN = responseHeader<32>(RES_GONE, "File could not be opened");
 
-void got_realpath(uv_fs_t *req);
-void got_access(uv_fs_t *req);
-void got_stat(uv_fs_t *req);
-void on_scandir(uv_fs_t *req);
-void on_open(uv_fs_t *req);
-void on_read(uv_fs_t *req);
-void on_close(uv_fs_t *req);
+#define HEADER(x) x.buf, x.length()
 
-void onCacheReady(const CachedData &data, Cache *cache, void *arg) {
-    FileContext *context = static_cast<FileContext *>(arg);
-    if (cache->isLoaded(context->getCacheKey())) {
-        context->send(data);
-        return;
+////////////////////////////////////////////////////////////////////////////////
+//
+// FileHandler
+//
+////////////////////////////////////////////////////////////////////////////////
+
+bool FileHandler::validateFile(string file) const noexcept {
+    for (regex pattern : rules) {
+        if (!std::regex_search(file, pattern, re_consts::match_not_null | re_consts::match_any)) {
+            return false;
+        }
     }
-    context->handle();
+    return true;
 }
 
-void got_realpath(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context == nullptr) {
-        uv_fs_req_cleanup(req);
+bool FileHandler::isExecutable(string file) const noexcept {
+    for (string cgi_type : cgi_types) {
+        if (file.find(cgi_type, file.length() - cgi_type.length()) != string::npos) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+bool FileHandler::shouldHandle(string host, string path) noexcept {
+    if (!this->host.empty()) {
+        if (this->host != host) {
+            return false;
+        }
+    }
+
+    if (!this->base.empty()) {
+        if (!path::isSubpath(base, path)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+struct RequestContext {
+    uv_fs_t req;
+    uv_file fd;
+    uv_buf_t buf;
+    size_t offset;
+    string file;
+	ClientConnection *client;
+    const FileHandler *handler;
+};
+ReusableAllocator<RequestContext> request_allocator;
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// FileHandler::handle()
+//
+// Handle the file request and send the response to the client.
+//
+////////////////////////////////////////////////////////////////////////////////
+
+void read_file(RequestContext *ctx);
+void read_dir(RequestContext *ctx);
+
+void handle_on_stat(uv_fs_t *req);
+void FileHandler::handle(ClientConnection *client) noexcept {
+    // Get the absolute path of the requested file
+	const Request &request = client->getRequest();
+    string file = path::delUps(request.path);
+    if (!request.path.empty() && request.path.back() == '/') {
+        file = file + '/';
+    }
+    if (file != request.path) {
+        // Check if the path contains up dirs
+        const auto header = responseHeader(RES_REDIRECT_PERM, file.c_str());
+        client->send(HEADER(header));
+        client->close();
         return;
     }
-    if (req->ptr != nullptr) {
-        string realpath = string((char *)uv_fs_get_ptr(req));
+    if (!this->base.empty()) {
+        file = path::relpath(file, this->base);
+    }
+    file = path::join(this->folder, path::delUps(file));
+
+    // Assert that the file matches the rules
+    if (!validateFile(file)) {
+        client->send(HEADER(ILLEGAL_FILE));
+        client->close();
+        return;
+    }
+
+    // Check if the path exists, and if it is a file or not
+    RequestContext *ctx = request_allocator.allocate();
+    ctx->file = file;
+    ctx->req.data = ctx;
+    ctx->req.loop = uv_default_loop();
+	ctx->client = client;
+    ctx->handler = this;
+    uv_fs_stat(ctx->req.loop, &ctx->req, ctx->file.c_str(), handle_on_stat);
+}
+void handle_on_stat(uv_fs_t *req) {
+    RequestContext *ctx = static_cast<RequestContext *>(req->data);
+
+    if (req->result != 0) {
+        // The file does not exist or does not have read permissions
+        ctx->client->send(HEADER(DOES_NOT_EXIST));
+        ctx->client->close();
         uv_fs_req_cleanup(req);
-        // TODO: Real path
-        // Check if the handler has permissions to read the file
-        LOG_DEBUG("Real path: " << realpath);
-        bool valid = true;
-        if (!context->settings->getAllowedDirs().empty()) {
-            valid = false;
-            for (const auto &rule : context->settings->getAllowedDirs()) {
-                if (rule.match(realpath)) {
-                    valid = true;
-                    break;
-                }
-            }
-        }
-        if (!valid) {
-            // The handler is not allowed to read this file
-            CachedData error = context->createCache(RES_NOT_FOUND, "You are not allowed to access this file");
-            context->send(error);
-            context->getCache()->add(context->getCacheKey(), error);
+        request_allocator.deallocate(ctx);
+        return;
+    }
+    string path = ctx->client->getRequest().path;
+
+    if (S_IFDIR & req->statbuf.st_mode) {
+        // The path is a directory
+        uv_fs_req_cleanup(req);
+
+        if (path.empty() || path.back() != '/') {
+            // Make sure that the path ends with a forward slash for directories
+            path += '/';
+            const auto header = responseHeader(RES_REDIRECT_PERM, path.c_str());
+            ctx->client->send(header.buf);
+            ctx->client->close();
+            request_allocator.deallocate(ctx);
             return;
         }
-        context->file = realpath;
-        // Check if the file has read permissions
-        uv_fs_access(context->getClient()->getLoop(), req, realpath.c_str(), R_OK, got_access);
-        return;
-    } 
-    uv_fs_req_cleanup(req);
-    // Invalid path
-    CachedData data = context->createCache(RES_NOT_FOUND, "File does not exist");
-    context->send(data);
-    context->getCache()->add(context->getCacheKey(), data);
-}
 
-void got_access(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context == nullptr) {
-        uv_fs_req_cleanup(req);
+        read_dir(ctx);
         return;
     }
-    ssize_t result = uv_fs_get_result(req);
-    if (result | R_OK) {
-        // Check if the file exists
+    if (S_IFREG & req->statbuf.st_mode) {
+        // The path is a file
         uv_fs_req_cleanup(req);
-        uv_fs_stat(context->getClient()->getLoop(), req, context->file.c_str(), got_stat);
-        return;
-    } 
-    CachedData error = context->createCache(RES_NOT_FOUND, "You are not allowed to access this file");
-    context->send(error);
-    context->getCache()->add(context->getCacheKey(), error);
-    uv_fs_req_cleanup(req);
-}
 
-void got_stat(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context == nullptr) {
-        uv_fs_req_cleanup(req);
-        return;
-    }
-    uv_stat_t statbuf = *uv_fs_get_statbuf(req);
-    if (uv_fs_get_result(req) < 0) {
-        uv_fs_req_cleanup(req);
-        LOG_ERROR("stat error: " << uv_strerror(uv_fs_get_result(req)));
-        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
-        context->send(error);
-        context->getCache()->add(context->getCacheKey(), error);
-        return;
-    }
-    LOG_DEBUG("file type: " << statbuf.st_mode);
-
-    const string &path = context->getRequest().getPath();
-    size_t final_backslash = path.find('/', path.length() - 1);
-    if (statbuf.st_mode & S_IFDIR) {
-        // The file is a directory
-        if (final_backslash == string::npos) {
-            // Make sure the path has a trailing backslash
-            CachedData redirect = context->createCache(RES_REDIRECT_PERM, path + "/");
-            context->send(redirect);
-            context->getCache()->add(context->getCacheKey(), redirect);
-            uv_fs_req_cleanup(req);
+        if (!path.empty() && path.back() == '/') {
+            // Make sure that the path ends with a forward slash for directories
+            const auto header = responseHeader(RES_REDIRECT_PERM, path.substr(0, path.length() - 1).c_str());
+            ctx->client->send(header.buf);
+            ctx->client->close();
+            request_allocator.deallocate(ctx);
             return;
         }
-        uv_fs_req_cleanup(req);
-        uv_fs_scandir(context->getClient()->getLoop(), req, context->file.c_str(), 0, on_scandir);
-        return;
-    } 
-    // The file is a file
-    if (final_backslash != string::npos) {
-        // Make sure the path does not have a trailing backslash
-        CachedData redirect = context->createCache(RES_REDIRECT_PERM, path.substr(0, final_backslash));
-        context->send(redirect);
-        context->getCache()->add(context->getCacheKey(), redirect);
-        uv_fs_req_cleanup(req);
+
+        read_file(ctx);
         return;
     }
+
+    ctx->client->send(HEADER(DOES_NOT_EXIST));
+    ctx->client->close();
     uv_fs_req_cleanup(req);
-    uv_fs_open(context->getClient()->getLoop(), req, context->file.c_str(), 0, UV_FS_O_RDONLY, on_open);
+    request_allocator.deallocate(ctx);
 }
 
-void on_scandir(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context == nullptr) {
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// read_file()
+//
+// Read the file in `ctx->file` to the client
+//
+////////////////////////////////////////////////////////////////////////////////
+
+
+void file_on_close(uv_fs_t *req);
+void file_on_read(uv_fs_t *req);
+void file_on_open(uv_fs_t *req);
+void read_file(RequestContext *ctx) {
+    uv_fs_open(ctx->req.loop, &ctx->req, ctx->file.c_str(), 0, UV_FS_O_RDONLY, file_on_open);
+}
+void file_on_open(uv_fs_t *req) {
+    RequestContext *ctx = static_cast<RequestContext *>(req->data);
+
+    if (req->result < 0) {
+        // The file couldn't be opened
+        ctx->client->send(HEADER(FILE_NOT_OPEN));
+        ctx->client->close();
         uv_fs_req_cleanup(req);
+        request_allocator.deallocate(ctx);
         return;
     }
+    ctx->fd = req->result;
+    ctx->buf = buffer_allocate();
+    ctx->offset = 0;
+
+    const auto header = responseHeader(RES_SUCCESS, mimeTypes.getType(ctx->file.c_str()));
+    ctx->client->send(HEADER(header));
+
+    uv_fs_read(req->loop, req, ctx->fd, &ctx->buf, 1, ctx->offset, file_on_read);
+}
+void file_on_read(uv_fs_t *req) {
+    RequestContext *ctx = static_cast<RequestContext *>(req->data);
+
+    if (req->result <= 0) {
+        ctx->client->close();
+        uv_fs_req_cleanup(req);
+        buffer_deallocate(ctx->buf);
+        uv_fs_close(req->loop, req, ctx->fd, file_on_close);
+        return;
+    }
+
+    ctx->client->send(ctx->buf.base, req->result);
+    ctx->offset += req->result;
+
+    uv_fs_req_cleanup(req);
+    uv_fs_read(req->loop, req, ctx->fd, &ctx->buf, 1, ctx->offset, file_on_read);
+}
+void file_on_close(uv_fs_t *req) {
+    RequestContext *ctx = static_cast<RequestContext *>(req->data);
+
+    uv_fs_req_cleanup(req);
+    request_allocator.deallocate(ctx);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//
+// read_dir()
+//
+// Read the directory in `ctx->file` to the client. If the directory contains
+// an index.* file, and that file is allowed to be viewed, then that file will
+// be read to the client instead.
+//
+// If there is no index.* file, and ctx->handler->canReadDirs() is true, then
+// the contents of the directory will be read to the client.
+//
+////////////////////////////////////////////////////////////////////////////////
+
+void dir_on_scan(uv_fs_t *req);
+void read_dir(RequestContext *ctx) {
+    uv_fs_scandir(ctx->req.loop, &ctx->req, ctx->file.c_str(), 0, dir_on_scan);
+}
+void dir_on_scan(uv_fs_t *req) {
+    RequestContext *ctx = static_cast<RequestContext *>(req->data);
+
+    if (req->result < 0) {
+        ctx->client->send(HEADER(FILE_NOT_OPEN));
+        ctx->client->close();
+        uv_fs_req_cleanup(req);
+        request_allocator.deallocate(ctx);
+        return;
+    }
+
+    vector<string> folders;
+    vector<string> children;
 
     uv_dirent_t entry;
-    if (uv_fs_get_result(req) < 0) {
-        uv_fs_req_cleanup(req);
-        LOG_ERROR("scandir error: " << uv_strerror(uv_fs_get_result(req)));
-        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
-        context->send(error);
-        context->getCache()->add(context->getCacheKey(), error);
-        return;
-    }
-    // Convert the scandir object into a map
-    map<string, uv_dirent_type_t> dirs;
     while (uv_fs_scandir_next(req, &entry) != UV_EOF) {
-        dirs[entry.name] = entry.type;
+        string name = entry.name;
+        if (entry.type == UV_DIRENT_DIR) {
+            folders.push_back(name);
+        } else {
+            children.push_back(name);
+        }
+        // Assert that the filename starts with index
+        if (name.rfind("index.", 0) == string::npos) {
+            continue;
+        }
+        string new_file = path::join(ctx->file, name);
+
+        // Assert that the file is allowed
+        if (!ctx->handler->validateFile(new_file)) {
+            continue;
+        }
+        ctx->file = new_file;
+        uv_fs_req_cleanup(req);
+        read_file(ctx);
+        return;
     }
     uv_fs_req_cleanup(req);
 
-    // find an index.xyz file
-    string index;
-    bool hasIndex = false;
-
-    for (auto pair : dirs) {
-        string name = pair.first;
-        if (name.rfind("index.", 0) == 0) {
-            hasIndex = true;
-            index = name;
-            break;
-        }
-    }
-
-    if (hasIndex) {
-        fs::path p = context->file;
-        p /= index;
-        context->file = p.string();
-        uv_fs_open(context->getClient()->getLoop(), req, context->file.c_str(), 0, UV_FS_O_RDONLY, on_open);
+    if (!ctx->handler->canReadDirs()) {
+        ctx->client->send(HEADER(DOES_NOT_EXIST));
+        ctx->client->close();
+        request_allocator.deallocate(ctx);
         return;
     }
 
-    if (!context->settings->getReadDirs()) {
-        // If the handler is not allowed to read directories, send an error message
-        CachedData error = context->createCache(RES_NOT_FOUND, "You are not allowed to access this file");
-        context->send(error);
-        context->getCache()->add(context->getCacheKey(), error);
-        return;
-    }
+    // Read the contents of the directory
 
-    // Read the directory
+    constexpr const auto header = responseHeader(RES_SUCCESS, "text/gemini");
+    ctx->client->send(HEADER(header));
+	
+	const Request &request = ctx->client->getRequest();
+
     ostringstream oss;
-    fs::path p = context->getRequest().getPath();
-    oss << "# " << context->getRequest().getPath() << "\n\n";
-    if (p.parent_path() != p) {
-        oss << "=> " << p.parent_path().parent_path().string() << " 📁 ../\n";
+    oss << "# DirectoryContents\n\n## " << request.path << "\n\n";
+
+    oss << "=> " << path::dirname(request.path) << " back\n\n";
+
+    for (string folder : folders) {
+        oss << "=> " << path::join(request.path, folder) << "/ " << folder << "/\n";
     }
-    for (auto pair : dirs) {
-        oss << "=> " << (p / pair.first).string();
-        string type = mimetypes.getType(pair.first.c_str());
-        if (pair.second == 2) {
-            oss << " 📁";
-        } else if (type.find("gemini") != string::npos) {
-            oss << " ♊";
-        } else if (type.find("markdown") != string::npos) {
-            oss << " 🔽";
-        } else if (type.find("audio") != string::npos) {
-            oss << " 🎶";
-        } else if (type.find("image") != string::npos) {
-            oss << " 🖼️";
-        } else if (type.find("video") != string::npos) {
-            oss << " 📺";
-        } else if (type.find("pdf") != string::npos) {
-            oss << " 📖";
-        } else if (type.find("zip") != string::npos || type.find("compressed") != string::npos) {
-            oss << " 📦";
-        } else if (type.find("calendar") != string::npos) {
-            oss << " 📅";
-        } else {
-            oss << " 📄";
-        }
-        oss << " ./" << pair.first << "\n";
-    }
+
     oss << "\n";
 
-    CachedData dir = context->createCache(RES_SUCCESS, "text/gemini");
-    dir.body = oss.str();
-    context->send(dir);
-    context->getCache()->add(context->getCacheKey(), dir);
+    for (string file : children) {
+        oss << "=> " << path::join(request.path, file) << " " << file << "\n";
+    }
+
+    string response = oss.str();
+    ctx->client->send(response.c_str(), response.length());
+    ctx->client->close();
+    request_allocator.deallocate(ctx);
 }
 
-void on_open(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context == nullptr) {
-        uv_fs_req_cleanup(req);
-        return;
-    }
+////////////////////////////////////////////////////////////////////////////////
+//
+// FileHandlerFactory
+//
+////////////////////////////////////////////////////////////////////////////////
 
-    int fd = uv_fs_get_result(req);
-    uv_fs_req_cleanup(req);
-    if (fd < 0) {
-        LOG_ERROR("open error: " << uv_strerror(uv_fs_get_result(req)));
-        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
-        context->send(error);
-        context->getCache()->add(context->getCacheKey(), error);
-        return;
-    }
-    context->file_fd = fd;
-    context->offset = 0;
-    uv_fs_read(context->getClient()->getLoop(), req, context->file_fd, &context->buf, 1, context->offset, on_read);
-}
+shared_ptr<Handler> FileHandlerFactory::createHandler(YAML::Node settings, string dir) {
+    string host = getProperty<string>(settings, HOST, "");
+    string folder = getProperty<string>(settings, FOLDER);
+    string base = getProperty<string>(settings, BASE, "");
+    bool read_dirs = getProperty<bool>(settings, READ_DIRS, true);
 
-void on_read(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context == nullptr) {
-        uv_fs_req_cleanup(req);
-        return;
-    }
-
-    int read = uv_fs_get_result(req);
-    if (read < 0) {
-        LOG_ERROR("read error: " << uv_strerror(uv_fs_get_result(req)));
-        CachedData error = context->createCache(RES_ERROR_CGI, "Internal Server Error");
-        context->send(error);
-        context->getCache()->add(context->getCacheKey(), error);
-        return;
-    }
-
-    if (read > 0) {
-        context->buffer += string(context->filebuf, read);
-        context->offset += read;
-        uv_fs_read(context->getClient()->getLoop(), req, context->file_fd, &context->buf, 1, context->offset, on_read);
-        return;
-    }
-
-    context->closing = true;
-    uv_fs_close(context->getClient()->getLoop(), req, context->file_fd, on_close);
-    context->file_fd = 0;
-
-    CachedData response = context->createCache(RES_SUCCESS, mimetypes.getType(context->file.c_str()));
-    response.body = context->buffer;
-    context->send(response);
-    context->getCache()->add(context->getCacheKey(), response);
-}
-
-void on_close(uv_fs_t *req) {
-    FileContext *context = static_cast<FileContext *>(uv_req_get_data((uv_req_t *)req));
-    if (context) {
-        if (uv_fs_get_result(req) < 0) {
-            LOG_ERROR("close error: " << uv_strerror(uv_fs_get_result(req)));
-            return;
+    vector<regex> rules;
+    if (settings[RULES].IsDefined()) {
+        if (!settings[RULES].IsSequence()) {
+            throw InvalidSettingsException(settings[RULES].Mark(), "'" + RULES + "' must be a sequence");
         }
-        context->_closed();
+        try {
+            for (auto rule : settings[RULES]) {
+                string rule_value = rule.as<string>();
+                rules.push_back(regex(rule_value, re_consts::ECMAScript | re_consts::icase | re_consts::optimize));
+            }
+        } catch (YAML::RepresentationException e) {
+            throw InvalidSettingsException(e.mark, e.msg);
+        }
     }
-}
 
-////////// FileContext //////////
-
-FileContext::FileContext(FileHandler *handler, SSLClient *client, Cache *cache, GeminiRequest request, string path, std::shared_ptr<FileSettings> settings)
-        : ClientContext(handler, client, cache),
-          handler(handler),
-          settings(settings),
-          request(request),
-          path(path) {
-    buf.base = filebuf;
-    buf.len = sizeof(filebuf);
-    ostringstream oss;
-    int port = request.getPort();
-    if (port == 0) {
-        port = 1965;
+    std::vector<string> cgi_types;
+    if (settings[CGI_TYPES].IsDefined()) {
+        if (!settings[CGI_TYPES].IsSequence()) {
+            throw InvalidSettingsException(settings[CGI_TYPES].Mark(), "'" + CGI_TYPES + "' must be a sequence");
+        }
+        try {
+            for (auto cgi_type : settings[CGI_TYPES]) {
+                cgi_types.push_back(cgi_type.as<string>());
+            }
+        } catch (YAML::RepresentationException e) {
+            throw InvalidSettingsException(e.mark, e.msg);
+        }
     }
-    key.name = path;
-    hash<string> str_hash;
-    hash<FileHandler*> ctx_hash;
-    key.hash = ctx_hash(handler);
-    key.hash = key.hash * 31 + str_hash(path);
-    key.hash = key.hash * 31 + str_hash(request.getPath());
-    key.hash = key.hash * 31 + str_hash(request.getQuery());
 
-    uv_req_set_data((uv_req_t *)&req, this);
-}
-
-FileContext::~FileContext() {
-}
-
-void FileContext::onDestroy() {
-    destroying = true;
-    if (processing_cache) {
-        getCache()->cancel(key);
+    if (path::isrel(folder)) {
+        folder = path::join(dir, folder);
     }
-    if (file_fd) {
-        uv_fs_close(getClient()->getLoop(), &req, file_fd, on_close);
-        file_fd = 0;
-        return;
-    } else if (!closing) {
-        _closed();
-    }
-}
+    folder = path::delUps(folder);
 
-void FileContext::_closed() {
-    closing = false;
-    file_fd = 0;
-    if (destroying) {
-        destroying = false;
-        destroy_done();
-    }
-}
-
-void FileContext::onRead() {
-
-}
-
-void FileContext::onWrite() {
-
-}
-
-void FileContext::handle() {
-    Cache *c = getCache();
-    // Check if the data has been cached already
-    if (c->isLoaded(getCacheKey())) {
-        send(c->get(getCacheKey()));
-        return;
-    }
-    // Check if the data is being loaded
-    if (c->isLoading(getCacheKey())) {
-        c->getNotified(getCacheKey(), onCacheReady, this);
-        return;
-    }
-    // Tell the cache that the data is being loaded
-    c->loading(getCacheKey());
-    processing_cache = true;
-
-    // Find the path on file
-    fs::path p(settings->getRoot());
-    if (path.rfind('/', 0) == 0) {
-        path = path.substr(1);
-    }
-    p /= path;
-    p = p.make_preferred();
-    file = p.string();
-
-    // find the realpath
-    int res = uv_fs_realpath(getClient()->getLoop(), &req, p.string().c_str(), got_realpath);
-    if (res == UV_ENOSYS) {
-        cerr << "Error: Unable to read file due to unsupported operating system!" << endl;
-        getClient()->crash();
-        return;
-    }
-}
-
-void FileContext::send(const CachedData &data) {
-    processing_cache = false;
-    string content = data.generateResponse();
-    LOG_INFO(getRequest().getRequestName() << " [" << data.response << "]");
-    getClient()->write(content.c_str(), content.length());
-    getClient()->close();
-
-}
-
-CachedData FileContext::createCache(int response, string meta) {
-    CachedData data;
-    data.lifetime = settings->getCacheTime();
-    data.response = response;
-    data.meta = meta;
-    return data;
-}
-
-////////// FileHandler //////////
-
-void FileHandler::handle(SSLClient *client, const GeminiRequest &request, string path) {
-    FileContext *context = new FileContext(this, client, getCache(), request, path, settings);
-    _add_context(context);
-    client->setContext(context);
-
-    context->handle();
+    return make_shared<FileHandler>(
+        host,
+        folder,
+        base,
+        read_dirs,
+        rules,
+        cgi_types
+    );
 }

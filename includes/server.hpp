@@ -1,283 +1,126 @@
-#ifndef __GEMCAPS_SERVER__
-#define __GEMCAPS_SERVER__
+#ifndef __GEMCAPS_SHARED_SERVER__
+#define __GEMCAPS_SHARED_SERVER__
 
-#include <string>
-#include <sstream>
 #include <memory>
-#include <map>
-#include <set>
 
 #include <wolfssl/options.h>
 #include <wolfssl/ssl.h>
 
 #include <uv.h>
 
-#include "context.hpp"
+#include <parallel_hashmap/phmap.h>
+
+#include "gemcaps/util.hpp"
+
 
 class SSLServer;
+class SSLClient;
 class ClientContext;
 
 
-/**
- * SSLClient connects WOLFSSL to libuv
- */
+class ClientContext {
+public:
+    virtual void on_close(SSLClient *client) = 0;
+    virtual void on_read(SSLClient *client) = 0;
+    virtual void on_write(SSLClient *client) = 0;
+};
+
+
 class SSLClient {
 private:
     uv_tcp_t *client;
     uv_timer_t *timeout;
     WOLFSSL *ssl;
-    char *buffer = nullptr;
-    int buffer_size = 0;
-    int buffer_len = 0;
-    int queued_writes = 0;
+
+    BufferPipe buffer;
+    
+    size_t queued_writes = 0;
     bool queued_close = false;
     bool closing = false;
     bool destroying = false;
 
     SSLServer *server;
-
+    
     ClientContext *context = nullptr;
 
-    std::map<uv_write_t*, uv_buf_t*> write_requests;
+    unsigned long timeout_time;
 
-    unsigned int timeout_time;
+    static void __on_recv(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf) noexcept;
+    static void __on_send(uv_write_t *req, int status) noexcept;
+    static void __on_close(uv_handle_t *handle) noexcept;
+    static void __on_timeout(uv_timer_t *timeout) noexcept;
+
+    phmap::flat_hash_map<uv_write_t *, std::vector<uv_buf_t>> write_requests;
 protected:
-    void _on_destroy_done();
+    int _send(const char *buf, int size) noexcept;
+    int _recv(int size, char *buf) noexcept;
+    int _ready() const noexcept;
 
-    /**
-     * Destroy the Client
-     * 
-     * This should be called before deleting the client to cleanly close all asynchronous jobs
-     */
-    void destroy();
-
-    friend ClientContext;
     friend SSLServer;
 public:
-    /**
-     * Create the SSL client
-     * 
-     * The client will be paired with the ssl
-     * 
-     * @param client tcp client
-     * @param ssl ssl client
-     */
     SSLClient(SSLServer *server, uv_tcp_t *client, WOLFSSL *ssl);
-    ~SSLClient();
+    ~SSLClient() noexcept;
 
-    /**
-     * Get the loop that the client is using
-     * 
-     * @return loop
-     */
-    uv_loop_t *getLoop() const;
+    uv_loop_t *getLoop() const noexcept;
 
-    /**
-     * Check if the buffer has more data available
-     * 
-     * @return whether there is more data
-     */
-    bool hasData() const { return buffer_len > 0; }
+    bool hasData() const noexcept { return buffer.ready() > 0; }
 
-    /**
-     * Start listening for data
-     */
-    void listen();
-    /**
-     * Stop listening for data
-     */
-    void stop_listening();
+    void listen() noexcept;
+    void stop_listening() noexcept;
 
-    /**
-     * Set the time for the timeout
-     * 
-     * When the timer runs out, the connection will be closed. whenever data
-     * is sent to the client or received from the client, the timer resets.
-     * 
-     * if the time is 0, then the timeout is disabled
-     * 
-     * @param time timeout time (ms)
-     */
-    void setTimeout(unsigned int time);
-    /**
-     * Reset the timer on the timeout
-     * 
-     * This is effectively like calling setTimeout() with whichever value
-     * it was last called with.
-     */
-    void resetTimeout();
+    void setTimeout(unsigned long time) noexcept;
+    void resetTimeout() noexcept;
 
-    /**
-     * Read data from the client
-     * 
-     * @param buffer buffer to put the data
-     * @param size number of bytes to read
-     * 
-     * @return number of bytes read, or -1 on error
-     */
-    int read(void *buffer, int size);
-    /**
-     * Write data to the client
-     * 
-     * @param data data to send
-     * @param size number of bytes to send
-     * 
-     * @return number of bytes written, or -1 on error
-     */
-    int write(const void *data, int size);
+    int read(size_t size, void *buffer) noexcept;
+    int write(const void *data, size_t size) noexcept;
 
-    /**
-     * Check if the server needs to wait for data
-     * 
-     * @return should wait for client
-     */
-    bool wants_read() const;
-    /**
-     * Check if the connection is still open
-     * 
-     * @return whether the connection is open
-     */
-    bool is_open() const;
-    /**
-     * Get the last wolfSSL error
-     * 
-     * @return the last wolfSSL error
-     */
-    int get_error() const;
-    /**
-     * Get the last wolfSSL error string
-     * 
-     * @return the last wolfSSL error string
-     */
-    std::string get_error_string() const;
+    bool wants_read() const noexcept;
+    bool is_open() const noexcept;
 
-    /**
-     * Close the connection
-     * 
-     * This will close the connection after any queued writes have been sent.
-     */
-    void close();
-    /**
-     * Crash the connection
-     * 
-     * reset and close the connection
-     */
-    void crash();
+    void close() noexcept;
+    void crash() noexcept;
 
-    /**
-     * set the context for the client
-     *
-     * @param context context to set
-     */
-    void setContext(ClientContext *context);
+    int getSSLErrorNumber(int result) const noexcept;
+    std::string getSSLErrorString(int result) const noexcept;
 
-    /**
-     * Get the context
-     * 
-     * @return context
-     */
-    ClientContext *getContext() const { return context; }
+    void setContext(ClientContext *context) noexcept { this->context = context; }
+    ClientContext *getContext() const noexcept { return context; }
 
-    /**
-     * Send data to the client
-     * 
-     * @param buf data to send
-     * @param size size of the data
-     * 
-     * @return amount of data sent
-     */
-    int _send(const char *buf, size_t size);
-    /**
-     * Receive ready data from the client
-     * 
-     * @param buf buffer to write to
-     * @param size maximum number of bytes to write
-     * 
-     * @return amount of data read
-     */
-    int _recv(char *buf, size_t size);
-
-    /**
-     * Put data in the input buffer
-     * 
-     * @param read size of the data
-     * @param buf data to receive
-     */
-    void _on_receive(ssize_t read, const uv_buf_t *buf);
-    /**
-     * Notify that data has been written to the stream
-     * 
-     * @param req write request
-     * @param status 0 in case of success, < 0 otherwise
-     */
-    void _on_write(uv_write_t *req, int status);
-
-    /**
-     * Called after the client has been closed
-     */
-    void _on_close();
+    SSLServer *getServer() noexcept { return server; }
 };
 
-typedef void(*SSL_ready_cb)(SSLClient *client);
+class ServerContext {
+public:
+    virtual void on_accept(SSLServer *server, SSLClient *client) = 0;
+};
 
-/**
- * A WolfSSL server wrapper
- */
 class SSLServer {
 private:
-    WOLFSSL_CTX *context = nullptr;
+    WOLFSSL_CTX *wolfssl = nullptr;
     uv_tcp_t *server = nullptr;
+    
+    ServerContext *context;
 
-    SSL_ready_cb accept_cb = nullptr;
-    void *accept_ctx = nullptr;
+    phmap::flat_hash_set<SSLClient *> clients;
 
-    std::set<SSLClient*> clients;
+    static void __on_accept(uv_stream_t *stream, int status) noexcept;
+
+    static int __send(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept;
+    static int __recv(WOLFSSL *ssl, char *buf, int size, void *ctx) noexcept;
 protected:
-    /**
-     * Notify that a client is being destroyed
-     */
-    void _notify_close(SSLClient *client);
+    void _on_client_close(SSLClient *client) noexcept;
 
     friend SSLClient;
 public:
-    ~SSLServer();
-    /**
-     * Load the ssl certificates
-     * 
-     * @param loop uv loop
-     * @param host host name to listen on
-     * @param port port to listen on
-     * @param cert certificate file
-     * @param key key file
-     * 
-     * @return whether the load was successful
-     */
-    bool load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key);
+    ~SSLServer() noexcept;
 
-    /**
-     * Set the accept callback function
-     * 
-     * it is called when a new connection has been accepted
-     * 
-     * @param cb callback
-     * @param ctx context
-     */
-    void setAcceptCallback(SSL_ready_cb cb, void *ctx = nullptr) { accept_cb = cb; accept_ctx = ctx; }
+    void load(uv_loop_t *loop, const std::string &host, int port, const std::string &cert, const std::string &key) noexcept;
 
-    /**
-     * Check whether the server is loaded
-     * 
-     * @return whether the server is loaded
-     */
-    bool isLoaded() const;
+    void listen() noexcept;
 
-    /**
-     * Accept a client connection, and notify the accept callback
-     * 
-     * @param conn client connection
-     */
-    void _accept(uv_tcp_t *conn);
+    void setContext(ServerContext *context) { this->context = context; }
+
+    bool isLoaded() const noexcept { return wolfssl != nullptr; }
 };
-
 
 #endif
