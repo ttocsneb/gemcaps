@@ -35,6 +35,7 @@ private:
 	Request request;
 	SSLClient *client;
 	BufferPipe buffer;
+    bool sentHeader = false;
 public:
 	GeminiConnection(Manager *manager, SSLClient *client)
 		: manager(manager),

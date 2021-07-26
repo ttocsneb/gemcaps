@@ -47,6 +47,21 @@ void GeminiConnection::send(const void *data, size_t length) noexcept {
 	char buf[1024];
 	size_t read = buffer.read(1024, buf);
 
+    if (!sentHeader) {
+        string header = buf;
+        size_t found = header.find("\r\n");
+        if (found != string::npos) {
+            header = header.substr(0, found);
+        } else {
+            found = header.find('\n');
+            if (found != string::npos) {
+                header = header.substr(0, found);
+            }
+        }
+        LOG_INFO("Sending header: " << header.substr(0, found));
+        sentHeader = true;
+    }
+
 	client->write(buf, read);
 }
 
