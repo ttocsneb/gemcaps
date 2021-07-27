@@ -1,0 +1,3 @@
+scriptRunners:
+  py: python3
+  jar: ["java", "-jar"]

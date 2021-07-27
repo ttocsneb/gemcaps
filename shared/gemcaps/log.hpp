@@ -5,10 +5,10 @@
 
 #include "gemcaps/stringutil.hpp"
 
-#define LOG_DEBUG(x) logging::debug(__FILE__, __LINE__) << x << std::endl
-#define LOG_INFO(x) logging::info(__FILE__, __LINE__) << x << std::endl
-#define LOG_WARN(x) logging::warn(__FILE__, __LINE__) << x << std::endl
-#define LOG_ERROR(x) logging::error(__FILE__, __LINE__) << x << std::endl
+#define LOG_DEBUG(x) if (logging::is_enabled(logging::DEBUG)) logging::debug(__FILE__, __LINE__) << x << std::endl
+#define LOG_INFO(x) if (logging::is_enabled(logging::INFO)) logging::info(__FILE__, __LINE__) << x << std::endl
+#define LOG_WARN(x) if (logging::is_enabled(logging::WARN)) logging::warn(__FILE__, __LINE__) << x << std::endl
+#define LOG_ERROR(x) if (logging::is_enabled(logging::ERROR)) logging::error(__FILE__, __LINE__) << x << std::endl
 
 namespace color {
 

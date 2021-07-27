@@ -83,6 +83,19 @@ public:
      * @param settings settings node
      */
     static void load(YAML::Node settings);
+
+    /**
+     * Find the path of an filename
+     * 
+     * @warning this is a synchronous function, and should not be called while processing a request
+     * 
+     * @param filename 
+     * 
+     * @return full path to the file
+     * 
+     * If the path could not be found, the filename is returned
+     */
+    static std::string findPath(std::string filename) noexcept;
 };
 
 #endif

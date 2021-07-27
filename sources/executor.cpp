@@ -14,7 +14,7 @@ using std::ostringstream;
 ReusableAllocator<uv_process_t> process_allocator;
 
 // This is a map of extensions -> program executables that will launch the process
-phmap::flat_hash_map<string, string> programs;
+phmap::flat_hash_map<string, vector<string>> programs;
 
 size_t strfind(const char *text, char find) noexcept {
     for (size_t i = 0; text[i] != '\0'; ++i) {
@@ -82,7 +82,7 @@ Executor::Executor(string path, const phmap::flat_hash_map<string, string> &env,
         auto found = programs.find(ext);
         if (found != programs.end()) {
             // Insert the executor program to the front of the args
-            args.insert(args.begin(), found->second);
+            args.insert(args.begin(), found->second.begin(), found->second.end());
         }
     }
 
@@ -169,9 +169,69 @@ void Executor::load(YAML::Node settings) {
     }
     try {
         for (auto it : settings) {
-            programs.insert({it.first.as<string>(), it.second.as<string>()});
+            vector<string> program;
+            if (it.second.IsSequence()) {
+                program = it.second.as<vector<string>>();
+            } else {
+                program.push_back(it.second.as<string>());
+            }
+            if (program.empty()) {
+                throw InvalidSettingsException(it.second.Mark(), "Must have at least one element in the sequence");
+            }
+            string exe = program.front();
+            string ext = it.first.as<string>();
+            if (exe.find('/') == string::npos && exe.find('\\') == string::npos) {
+                program[0] = findPath(exe);
+            }
+            LOG_DEBUG("Adding program for '" << ext << "' files: '" << program.front() << "'");
+            programs.insert({it.first.as<string>(), program});
         } 
     } catch (YAML::RepresentationException e) {
         throw InvalidSettingsException(e.mark, e.msg);
     }
+}
+
+string Executor::findPath(string filename) noexcept {
+    static vector<string> paths;
+    if (paths.empty()) {
+        char path_buf[2048];
+        size_t len = sizeof(path_buf);
+        uv_os_getenv("PATH", path_buf, &len);
+        string path = path_buf;
+#ifdef WIN32
+        constexpr const char SEP = ';';
+#else
+        constexpr const char SEP = ':';
+#endif
+        while (true) {
+            size_t pos = path.find(SEP);
+            if (pos == string::npos) {
+                paths.push_back(path);
+                break;
+            }
+            paths.push_back(path.substr(0, pos));
+            path = path.substr(pos + 1);
+        }
+    }
+    uv_fs_t req;
+    for (string p : paths) {
+        int result = uv_fs_scandir(uv_default_loop(), &req, p.c_str(), 0, nullptr);
+        if (result < 0) {
+            continue;
+        }
+        uv_dirent_t entry;
+        while (uv_fs_scandir_next(&req, &entry) != UV_EOF) {
+            if (entry.type != UV_DIRENT_FILE) {
+                continue;
+            }
+            if (filename == entry.name
+                    #ifdef WIN32
+                    || filename + ".exe" == entry.name
+                    #endif
+            ) {
+                return path::join(p, entry.name);
+            }
+        }
+    }
+    return filename;
 }

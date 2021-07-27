@@ -85,9 +85,42 @@ handlers/
  > files.yml
 servers/
  > main.yml
+conf.yml
 cert.pem
 key.pem
 ```
+
+## Config
+
+```yml
+$schema: https://json-schema.org/draft/2020-12/schema
+title: Gemcaps Config
+description: configure general settings for gemcaps
+type: object
+properties:
+  scriptRunners:
+    description: A map of file extensions to program executables
+    type: object
+    additionalProperties:
+      description: A list of arguments that can execute a file
+      type: array
+      items:
+        type: string 
+```
+
+### conf.yml
+
+```yml
+scriptRunners:
+  py: python3
+  jar: ["java", "-jar"]
+```
+
+In the conf.yml file, it defines two file extensions that can be executed:
+
+* py files can be executed by running `python3 <file>`
+* jar files can be executed by running `java -jar <file>`
+
 
 ### Servers
 
@@ -159,7 +192,7 @@ properties:
  required:
  - server
  - handler
-```Base handler config schema
+```
 
 #### File Handler Config Schema
 

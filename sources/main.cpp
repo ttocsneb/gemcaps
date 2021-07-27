@@ -4,6 +4,7 @@
 #include <set>
 #include <memory>
 #include <filesystem>
+#include <exception>
 
 #include <iostream>
 
@@ -15,6 +16,7 @@
 #include "gemcaps/log.hpp"
 #include "params.hpp"
 #include "gemcaps/pathutils.hpp"
+#include "gemcaps/executor.hpp"
 
 namespace fs = std::filesystem;
 
@@ -22,6 +24,7 @@ using std::string;
 using std::set;
 using std::shared_ptr;
 using std::make_shared;
+using std::exception;
 
 using std::cout;
 using std::cerr;
@@ -95,6 +98,19 @@ int main(int argc, const char **argv) {
         } else {
             config = conf_path;
         }
+    }
+
+    string conf_file = path::join(config, "conf.yml");
+    try {
+        YAML::Node config = YAML::LoadFile(conf_file);
+        constexpr const char *ScriptRunners = "scriptRunners";
+        if (config[ScriptRunners].IsDefined()) {
+            Executor::load(config[ScriptRunners]);
+        }
+    } catch (InvalidSettingsException &e) {
+        LOG_ERROR(e.getMessage(conf_file));
+    } catch (exception &e) {
+        LOG_ERROR("Could not load '" << conf_file << "': " << e.what());
     }
 
     Manager manager;
