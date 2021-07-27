@@ -6,6 +6,12 @@ project(GemCaps
 
 SET(CMAKE_CXX_STANDARD 17)
 
+
+
+add_definitions(-DNO_TIMEOUTS)
+
+
+
 FILE(GLOB_RECURSE
     sources ${PROJECT_SOURCE_DIR}/sources/*
 )

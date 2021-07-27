@@ -8,10 +8,4 @@ Below, you will find a link to a folder.
 
 => test/ test folder
 
-In this folder, you will see a list of all the files in the folder! This is optional behaviour, and can be enabled with the following setting:
-
-```yaml
-handlers:
-- type: file
-  readDirs: true # This will enable reading of directories
-```handler.yml
+In this folder, you will see a list of all the files in the folder! This is optional behaviour.

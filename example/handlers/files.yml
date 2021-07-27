@@ -1,3 +1,7 @@
 server: main
 handler: filehandler
 folder: ../files
+cgiFiletypes:
+- py
+cgiVars:
+  foobar: Cheese!

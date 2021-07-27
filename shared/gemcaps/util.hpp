@@ -7,6 +7,8 @@
 #include <vector>
 #include <parallel_hashmap/phmap.h>
 
+inline const char *SOFTWARE = "GemCaps-0.3.1-alpha";
+
 class IBufferPipe;
 
 class IBufferPipeObserver {

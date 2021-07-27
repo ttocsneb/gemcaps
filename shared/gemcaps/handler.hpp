@@ -66,6 +66,9 @@ struct Request {
     std::string query;
 };
 
+class ClientConnection;
+typedef void (*onClientClose)(ClientConnection *connection, void *ctx);
+
 /**
  * A connection to a client.
  *
@@ -102,6 +105,14 @@ public:
 	 * Close the connection to the client
 	 */
 	virtual void close() = 0;
+
+    /**
+     * Set the callback for when the client gets closed
+     * 
+     * @param cb callback
+     * @param ctx context
+     */
+    virtual void setClientCloseCallback(onClientClose cb, void *ctx = nullptr) = 0;
 };
 
 /**

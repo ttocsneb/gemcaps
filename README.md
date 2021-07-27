@@ -230,10 +230,19 @@ properties:
       description: A regex string
       type: string
   cgiFiletypes:
-    description: a list of file types that may be executed as a CGI script (this is not yet implemented)
+    description: a list of file types that may be executed as a CGI script
     type: array
     items:
       description: A file extension
+      type: string
+  cgiLang:
+    description: The language that cgi scripts should use
+    default: en_US.UTF-8
+    type: string
+  cgiVars:
+    description: The environmental variables to add to all CGI scripts
+    type: object
+    additionalProperties:
       type: string
 required:
 - server
@@ -247,6 +256,12 @@ required:
 server: main
 handler: filehandler
 folder: ../files
+cgiFiletypes:
+- py
+cgiVars:
+  foobar: Cheese!
 ```
 
 In files.yml, this defines a handler that will serve files from the files directory to any host.
+
+It also configures .py files to be considered cgi files. It will attempt to execute any .py file as a cgi script.

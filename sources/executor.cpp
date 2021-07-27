@@ -27,10 +27,11 @@ size_t strfind(const char *text, char find) noexcept {
 
 
 void Executor::__on_exit(uv_process_t *process, int64_t exit_status, int term_signal) noexcept {
-    Executor *exc = static_cast<Executor *>(process->data);
     if (process->data == nullptr) {
         process_allocator.deallocate(process);
+        return;
     }
+    Executor *exc = static_cast<Executor *>(process->data);
     if (exc == nullptr) {
         LOG_ERROR("data is not executor as expected");
         return;
@@ -62,23 +63,23 @@ Executor::Executor(string path, const phmap::flat_hash_map<string, string> &env,
     char *buf = env_buf;
     int i;
     for (i = 0; i < env.size(); ++i) {
-        buf = buf + pos;
         this->env[i] = buf;
         pos = strfind(buf, '\r');
         if (pos == string::npos) {
             break;
         }
         buf[pos++] = '\0';
+        buf = buf + pos;
     }
     this->env[i] = nullptr;
 
     // Create the args array
 
     // find the executor program
-    string file = args.front();
-    pos = file.rfind('.');
+    args.insert(args.begin(), path);
+    pos = path.rfind('.');
     if (pos != string::npos) {
-        string ext = file.substr(pos + 1);
+        string ext = path.substr(pos + 1);
         auto found = programs.find(ext);
         if (found != programs.end()) {
             // Insert the executor program to the front of the args
@@ -98,15 +99,15 @@ Executor::Executor(string path, const phmap::flat_hash_map<string, string> &env,
     pos = 0;
     buf = args_buf;
     for (i = 0; i < args.size(); ++i) {
-        buf = buf + pos;
         this->args[i] = buf;
         pos = strfind(buf, '\r');
         if (pos == string::npos) {
             break;
         }
         buf[pos++] = '\0';
+        buf = buf + pos;
     }
-    this->env[i] = nullptr;
+    this->args[i] = nullptr;
 }
 
 Executor::~Executor() {
@@ -125,7 +126,7 @@ Executor::~Executor() {
 
     if (alive) {
         process->data = nullptr;
-        signal(SIGSTOP);
+        signal(SIGKILL);
     } else if (process != nullptr) {
         process_allocator.deallocate(process);
     }
@@ -139,14 +140,34 @@ int Executor::spawn(uv_loop_t *loop, int input_fd, int output_fd) noexcept {
         alive = false;
     }
 
+    uv_stdio_container_t stdio[3];
+    if (input_fd >= 0) {
+        stdio[0].flags = UV_INHERIT_FD;
+        stdio[0].data.fd = input_fd;
+    } else {
+        stdio[0].flags = UV_IGNORE;
+    }
+    if (output_fd >= 0) {
+        stdio[1].flags = UV_INHERIT_FD;
+        stdio[1].data.fd = output_fd;
+    } else {
+        stdio[1].flags = UV_INHERIT_FD;
+        stdio[1].data.fd = 1;
+    }
+    stdio[2].flags = UV_INHERIT_FD;
+    stdio[2].data.fd = 2;
+
     uv_process_options_t options;
+    options.file = args[0];
     options.args = args;
     options.env = env;
     options.cwd = cwd.c_str();
-    options.gid = uv_os_getpid();
-    options.flags = UV_PROCESS_SETGID | UV_PROCESS_WINDOWS_HIDE_CONSOLE | UV_PROCESS_WINDOWS_HIDE_GUI;
+    options.flags = UV_PROCESS_WINDOWS_HIDE_CONSOLE | UV_PROCESS_WINDOWS_HIDE_GUI;
     options.exit_cb = __on_exit;
-    // TODO: Figure out input/output io
+    options.stdio_count = 3;
+    options.stdio = stdio;
+
+    process->data = this;
     int success = uv_spawn(loop, process, &options);
     if (success == 0) {
         alive = true;
@@ -161,8 +182,6 @@ void Executor::signal(int signal) noexcept {
 }
 
 void Executor::load(YAML::Node settings) {
-    uv_disable_stdio_inheritance();
-
     programs.clear();
     if (!settings.IsMap()) {
         throw InvalidSettingsException(settings.Mark(), "Must be a map");
@@ -194,10 +213,7 @@ void Executor::load(YAML::Node settings) {
 string Executor::findPath(string filename) noexcept {
     static vector<string> paths;
     if (paths.empty()) {
-        char path_buf[2048];
-        size_t len = sizeof(path_buf);
-        uv_os_getenv("PATH", path_buf, &len);
-        string path = path_buf;
+        string path = getPath();
 #ifdef WIN32
         constexpr const char SEP = ';';
 #else
@@ -234,4 +250,15 @@ string Executor::findPath(string filename) noexcept {
         }
     }
     return filename;
+}
+
+const string &Executor::getPath() noexcept {
+    static string path;
+    if (path.empty()) {
+        char path_buf[2048];
+        size_t len = sizeof(path_buf);
+        uv_os_getenv("PATH", path_buf, &len);
+        path = path_buf;
+    }
+    return path;
 }

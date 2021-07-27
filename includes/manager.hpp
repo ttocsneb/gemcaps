@@ -36,6 +36,9 @@ private:
 	SSLClient *client;
 	BufferPipe buffer;
     bool sentHeader = false;
+
+    onClientClose cb = nullptr;
+    void *ctx = nullptr;
 public:
 	GeminiConnection(Manager *manager, SSLClient *client)
 		: manager(manager),
@@ -47,6 +50,7 @@ public:
 	const Request &getRequest() const noexcept { return request; }
 	void send(const void *data, size_t length) noexcept;
 	void close() noexcept;
+    void setClientCloseCallback(onClientClose cb, void *ctx = nullptr) { this->cb = cb; this->ctx = ctx; }
 
 	// Override ClientContext
 	void on_close(SSLClient *client) noexcept;

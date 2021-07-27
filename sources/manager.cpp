@@ -58,7 +58,7 @@ void GeminiConnection::send(const void *data, size_t length) noexcept {
                 header = header.substr(0, found);
             }
         }
-        LOG_INFO("Sending header: " << header.substr(0, found));
+        LOG_INFO(request.host << request.path << ": " << header.substr(0, found));
         sentHeader = true;
     }
 
@@ -71,6 +71,9 @@ void GeminiConnection::close() noexcept {
 
 void GeminiConnection::on_close(SSLClient *client) noexcept {
 	manager->on_close(client);
+    if (cb) {
+        cb(this, ctx);
+    }
 }
 
 void GeminiConnection::on_write(SSLClient *client) noexcept {
@@ -177,7 +180,9 @@ void Manager::startServers() noexcept {
 void Manager::on_accept(SSLServer *server, SSLClient *client) noexcept {
     requests.insert({client, make_unique<GeminiConnection>(this, client)});
     client->setContext(this);
-    // client->setTimeout(1000);
+#ifndef NO_TIMEOUTS
+    client->setTimeout(1000);
+#endif
     client->listen();
 }
 
@@ -343,7 +348,9 @@ void Manager::on_read(SSLClient *client) noexcept {
 
     for (auto handler : foundHandlers->second) {
         if (handler->shouldHandle(request.host, request.path)) {
-            // client->setTimeout(30000);
+#ifndef NO_TIMEOUTS
+            client->setTimeout(30000);
+#endif
             handler->handle(gemini);
             return;
         }

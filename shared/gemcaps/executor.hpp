@@ -15,7 +15,6 @@ class Executor;
 class ExecutorContext {
 public:
     virtual void onExit(Executor *executor, int64_t exit_status, int term_signal) = 0;
-
 };
 
 class Executor {
@@ -87,7 +86,7 @@ public:
     /**
      * Find the path of an filename
      * 
-     * @warning this is a synchronous function, and should not be called while processing a request
+     * @warning this is a synchronous function, and should not be called in an asynchronous context
      * 
      * @param filename 
      * 
@@ -96,6 +95,13 @@ public:
      * If the path could not be found, the filename is returned
      */
     static std::string findPath(std::string filename) noexcept;
+
+    /**
+     * Get the system path
+     * 
+     * @return the path environment variable
+     */
+    static const std::string &getPath() noexcept;
 };
 
 #endif
