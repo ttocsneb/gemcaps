@@ -394,7 +394,7 @@ public:
     void close() {
         closing = true;
         if (executor.is_alive()) {
-            executor.signal(SIGSTOP);
+            executor.signal(SIGINT);
         }
         ctx->client->close();
         uv_close((uv_handle_t *)response, __on_pipe_closed);

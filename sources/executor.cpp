@@ -136,7 +136,7 @@ int Executor::spawn(uv_loop_t *loop, int input_fd, int output_fd) noexcept {
     if (process == nullptr) {
         process = process_allocator.allocate();
     } else if (alive) {
-        signal(SIGSTOP);
+        signal(SIGKILL);
         alive = false;
     }
 
