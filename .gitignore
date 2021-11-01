@@ -1,1 +1,8 @@
 /target
+
+# Mac files
+.DS_Store
+
+# Remove all unneeded toml files
+*.toml
+!Cargo.*

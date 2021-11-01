@@ -4,6 +4,7 @@ use std::io::ErrorKind;
 use serde::{Serialize, Deserialize};
 
 const SETTINGS: &str = "conf.toml";
+const DEFAULT_LISTEN: &str = "0.0.0.0:1965";
 
 
 #[derive(Serialize, Deserialize)]
@@ -11,7 +12,6 @@ pub struct Settings {
     pub listen: String,
 }
 
-const DEFAULT_LISTEN: &str = "0.0.0.0:1965";
 
 pub async fn load_settings() -> Result<Settings, Box<dyn Error>> {
     let res = match fs::read_to_string(SETTINGS).await {
