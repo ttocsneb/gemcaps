@@ -1,5 +1,6 @@
 use tokio::fs;
-use std::error::Error;
+use std::collections::HashMap;
+use std::{error::Error};
 use std::io::ErrorKind;
 use serde::{Serialize, Deserialize};
 
@@ -7,9 +8,16 @@ const SETTINGS: &str = "conf.toml";
 const DEFAULT_LISTEN: &str = "0.0.0.0:1965";
 
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Settings {
     pub listen: String,
+    pub certificates: HashMap<String, Cert>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Cert {
+    pub cert: String,
+    pub key: String,
 }
 
 
@@ -22,6 +30,7 @@ pub async fn load_settings() -> Result<Settings, Box<dyn Error>> {
             // If the settings don't exist, create the default settings
             let defaults = Settings {
                 listen: String::from(DEFAULT_LISTEN),
+                certificates: HashMap::new(),
             };
             save_settings(&defaults).await?;
             return Ok(defaults);
