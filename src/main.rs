@@ -8,16 +8,22 @@ mod pem;
 #[tokio::main]
 async fn main() {
 
-    let sett = settings::load_settings().await.unwrap();
+    let sett = match settings::load_settings().await {
+        Ok(val) => val,
+        Err(e) => {
+            println!("Could not load settings: {}", e.to_string());
+            return;
+        }
+    };
 
     let mut sni_certs: Vec<SniCert> = Vec::new();
 
     for (server, cert) in &sett.certificates {
-        sni_certs.push(server::SniCert::new(
-            server.clone(), 
-            pem::read_cert(cert.cert.as_str()).unwrap(), 
-            pem::read_key(cert.key.as_str()).unwrap()).unwrap()
-        );
+        sni_certs.push(server::SniCert::load(
+            server, 
+            &cert.cert,
+            &cert.key
+        ).unwrap());
     }
 
     server::serve(&sett.listen, &sni_certs).await.unwrap();

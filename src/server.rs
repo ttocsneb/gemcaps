@@ -1,28 +1,25 @@
-use rustls::{Certificate, PrivateKey, server::ResolvesServerCertUsingSni, sign::{CertifiedKey, RsaSigningKey}};
-use tokio::{net::{TcpListener, TcpStream}};
-use std::{io, sync::Arc};
+use rustls::{Certificate, PrivateKey, server::ResolvesServerCertUsingSni, sign, Error};
+use tokio::net::{TcpListener, TcpStream};
+use std::sync::Arc;
+
+use crate::pem;
 
 // Using https://github.com/rustls/rustls/blob/main/rustls-mio/examples/tlsserver.rs as a tutorial
 
 pub struct SniCert {
-    cert_name: String,
-    cert: CertifiedKey
+    name: String,
+    cert: Vec<Certificate>,
+    key: PrivateKey,
 }
 
 impl SniCert {
-    pub fn new(server_name: String, cert: Vec<u8>, key: Vec<u8>) -> io::Result<Self> {
-        let mut certificate: Vec<Certificate> = Vec::new();
-        certificate.push(Certificate(cert));
-        let key = match RsaSigningKey::new(&PrivateKey(key)) {
-            Ok(key) => key,
-            Err(_) => {
-                return Err(io::Error::new(io::ErrorKind::InvalidData, "Sign Error"));
-            }
-        };
-        let k = CertifiedKey::new(certificate, Arc::new(key));
+    pub fn load(server_name: &str, cert_file: &str, key_file: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let cert = pem::read_cert(&cert_file)?;
+        let key = pem::read_key(&key_file)?;
         Ok(SniCert {
-            cert_name: server_name,
-            cert: k,
+            name: String::from(server_name),
+            cert,
+            key,
         })
     }
 }
@@ -85,13 +82,16 @@ pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std
     let mut sni = ResolvesServerCertUsingSni::new();
 
     for cert in certs {
-        println!("Loading certificate for {}", cert.cert_name);
-        sni.add(&cert.cert_name, cert.cert.clone())?;
+        println!("Loading certificate for {}", cert.name);
+        let key = sign::any_supported_type(&cert.key)
+            .map_err(|_| Error::General("invalid private key".into()))?;
+        sni.add(&cert.name, sign::CertifiedKey::new(cert.cert.clone(), key))?;
     }
 
+    println!("Creating Config");
     let config = rustls::ServerConfig::builder()
         .with_safe_defaults()
-        .with_no_client_auth()
+        .with_no_client_auth() // TODO Make Client Auth Resolver
         .with_cert_resolver(Arc::new(sni));
     let mut server = TLSServer::new(listener, Arc::new(config));
     println!("Listening on {}", listen);

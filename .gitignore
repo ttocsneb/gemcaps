@@ -6,3 +6,9 @@
 # Remove all unneeded toml files
 *.toml
 !Cargo.*
+
+# Remove all certificates
+*.crt
+*.key
+*.csr
+*.srl
