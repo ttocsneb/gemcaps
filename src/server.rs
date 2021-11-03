@@ -1,7 +1,7 @@
 use tokio::net::{TcpListener};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey, sign, server};
 use tokio_rustls::TlsAcceptor;
-use tokio::io::{self, copy, split, AsyncWriteExt};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt, copy, split};
 use std::sync::Arc;
 use std::str;
 
@@ -54,14 +54,26 @@ pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std
         println!("Receiving request from {:?}", peer_addr);
 
         let fut = async move {
-            let stream = acceptor.accept(stream).await?;
+            let mut stream = acceptor.accept(stream).await?;
 
-            let (mut reader, mut writer) = split(stream);
-            let n = copy(&mut reader, &mut writer).await?;
-            writer.flush().await?;
-            println!("Echo {}", n);
+            // Read the request
+            let mut buf = [0; 1024];
+            let n = stream.read(&mut buf).await?;
 
-            Ok(()) as io::Result<()>
+            // Convert the request into utf8 (TODO: use standard url encoding)
+            let header = str::from_utf8(&buf[0 .. n])?;
+
+            // TODO: Parse the request
+            println!("Header: '{}'", header);
+
+            // TODO: Process the request
+
+            // TODO: Send the response
+            let response = "20 text/gemini\r\nHello World!\n";
+            stream.write(&response.as_bytes()).await?;
+            stream.shutdown().await?;
+
+            Ok(()) as Result<(), Box<dyn std::error::Error>>
         };
 
         tokio::spawn(async move {
