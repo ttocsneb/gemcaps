@@ -1,6 +1,9 @@
-use rustls::{Certificate, PrivateKey, server::ResolvesServerCertUsingSni, sign, Error};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener};
+use tokio_rustls::rustls::{self, Certificate, PrivateKey, sign, server};
+use tokio_rustls::TlsAcceptor;
+use tokio::io::{self, copy, split, AsyncWriteExt};
 use std::sync::Arc;
+use std::str;
 
 use crate::pem;
 
@@ -25,66 +28,13 @@ impl SniCert {
 }
 
 
-struct TLSServer {
-    server: TcpListener,
-    tls_config: Arc<rustls::ServerConfig>,
-}
-
-impl TLSServer {
-    fn new(server: TcpListener, cfg: Arc<rustls::ServerConfig>) -> Self {
-        TLSServer {
-            server,
-            tls_config: cfg
-        }
-    }
-
-    async fn accept(&mut self) -> TLSClient {
-        loop {
-            match self.server.accept().await {
-                Ok((socket, addr)) => {
-                    println!("Accepting new connection from {:?}", addr);
-                    let tls_conn = rustls::ServerConnection::new(Arc::clone(&self.tls_config)).unwrap();
-                    let connection = TLSClient::new(socket, tls_conn);
-                    return connection;
-                }
-                Err(e) => {
-                    println!("Couldn't accept client: {:?}", e);
-                }
-            };
-        }
-    }
-}
-
-struct TLSClient {
-    socket: TcpStream,
-    conn: rustls::ServerConnection,
-}
-
-impl TLSClient {
-    fn new(socket: TcpStream, conn: rustls::ServerConnection) -> Self {
-        TLSClient {
-            socket,
-            conn
-        }
-    }
-
-    async fn read(&self) {
-
-    }
-
-    async fn write(&self) {
-
-    }
-}
-
 pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std::error::Error>> {
-    let listener = TcpListener::bind(listen).await?;
-    let mut sni = ResolvesServerCertUsingSni::new();
+    let mut sni = server::ResolvesServerCertUsingSni::new();
 
     for cert in certs {
         println!("Loading certificate for {}", cert.name);
         let key = sign::any_supported_type(&cert.key)
-            .map_err(|_| Error::General("invalid private key".into()))?;
+            .map_err(|_| rustls::Error::General("invalid private key".into()))?;
         sni.add(&cert.name, sign::CertifiedKey::new(cert.cert.clone(), key))?;
     }
 
@@ -93,9 +43,31 @@ pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std
         .with_safe_defaults()
         .with_no_client_auth() // TODO Make Client Auth Resolver
         .with_cert_resolver(Arc::new(sni));
-    let mut server = TLSServer::new(listener, Arc::new(config));
+
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let listener = TcpListener::bind(&listen).await?;
     println!("Listening on {}", listen);
+
     loop {
-        let connection = server.accept().await;
+        let (stream, peer_addr) = listener.accept().await?;
+        let acceptor = acceptor.clone();
+        println!("Receiving request from {:?}", peer_addr);
+
+        let fut = async move {
+            let stream = acceptor.accept(stream).await?;
+
+            let (mut reader, mut writer) = split(stream);
+            let n = copy(&mut reader, &mut writer).await?;
+            writer.flush().await?;
+            println!("Echo {}", n);
+
+            Ok(()) as io::Result<()>
+        };
+
+        tokio::spawn(async move {
+            if let Err(err) = fut.await {
+                eprint!("Error while handling request: {:?}", err);
+            }
+        });
     }
 }

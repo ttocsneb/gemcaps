@@ -1,8 +1,7 @@
 use std::fs;
 use std::io;
 use std::iter;
-use rustls::Certificate;
-use rustls::PrivateKey;
+use tokio_rustls::rustls::{Certificate, PrivateKey};
 use rustls_pemfile::{Item, read_one, certs};
 
 
