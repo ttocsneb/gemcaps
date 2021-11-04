@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::str;
 
 use crate::pem;
+use crate::gemini;
 
 // Using https://github.com/rustls/rustls/blob/main/rustls-mio/examples/tlsserver.rs as a tutorial
 
@@ -63,8 +64,9 @@ pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std
             // Convert the request into utf8 (TODO: use standard url encoding)
             let header = str::from_utf8(&buf[0 .. n])?;
 
-            // TODO: Parse the request
-            println!("Header: '{}'", header);
+            // Parse the request
+            let request = gemini::Request::parse(header)?;
+            println!("Header: '{:?}'", request);
 
             // TODO: Process the request
 
