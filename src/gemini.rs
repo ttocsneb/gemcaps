@@ -84,10 +84,6 @@ impl Request {
             query,
         })
     }
-
-    pub fn to_string(&self) -> String {
-        format!("{}://{}{}{}", self.protocol, self.domain, self.path, self.query)
-    }
 }
 
 impl Debug for Request {

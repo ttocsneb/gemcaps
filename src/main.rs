@@ -4,6 +4,7 @@ mod settings;
 mod server;
 mod pem;
 mod gemini;
+mod capsule;
 
 #[tokio::main]
 async fn main() {

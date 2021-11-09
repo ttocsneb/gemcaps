@@ -1,14 +1,12 @@
 use tokio::net::{TcpListener};
 use tokio_rustls::rustls::{self, Certificate, PrivateKey, sign, server};
 use tokio_rustls::TlsAcceptor;
-use tokio::io::{self, AsyncReadExt, AsyncWriteExt, copy, split};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::sync::Arc;
 use std::str;
 
 use crate::pem;
 use crate::gemini;
-
-// Using https://github.com/rustls/rustls/blob/main/rustls-mio/examples/tlsserver.rs as a tutorial
 
 pub struct SniCert {
     name: String,
