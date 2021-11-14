@@ -87,6 +87,9 @@ pub fn basename(path: &str) -> String {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"/([^/]+)$").unwrap();
     }
+    if path.ends_with("/") {
+        return basename(&path[0 .. path.len() - 1]);
+    }
     match RE.captures(path) {
         Some(m) => String::from(m.get(1).map_or("", |m| m.as_str())),
         None => String::from(path),
@@ -195,6 +198,7 @@ mod tests {
         assert_eq!(basename("asdf/qwerty"), "qwerty");
         assert_eq!(basename("/qwerty"), "qwerty");
         assert_eq!(basename("qwerty"), "qwerty");
+        assert_eq!(basename("asdf/qwerty/"), "qwerty");
     }
 
     #[test]

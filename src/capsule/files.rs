@@ -22,16 +22,77 @@ pub struct FileCapsule {
     serve_folders: bool,
 }
 
+impl FileCapsule {
+    /// Read the file to string
+    /// 
+    /// file is the file on disk.
+    /// path is the file on the server.
+    async fn read_file(&self, file: &str, path: &str) -> io::Result<String> {
+        // TODO: Retreive mimetype
+
+        let metadata = fs::metadata(file).await?;
+        if metadata.is_file() {
+            return fs::read_to_string(file).await;
+        }
+        if metadata.is_dir() {
+            let mut dirs = fs::read_dir(file).await?;
+            let mut folders = Vec::new();
+            let mut files = Vec::new();
+            // Try to find an index.xyz to read from
+            while let Some(ent) = dirs.next_entry().await? {
+                if let Some(name) = ent.file_name().to_str() {
+                    if !ent.file_type().await?.is_file() {
+                        folders.push(format!("{}/", name));
+                        continue;
+                    }
+                    let (filename, ext) = pathutil::splitext(name);
+                    if !self.extensions.is_empty() && !self.extensions.contains(&ext.to_ascii_lowercase()) {
+                        continue;
+                    }
+                    files.push(String::from(name));
+                    if filename.to_ascii_lowercase() == "index" {
+                        return fs::read_to_string(ent.path()).await;
+                    }
+                }
+            }
+            if !self.serve_folders {
+                return Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "Unable to serve folders"
+                ));
+            }
+            // Return the contents of the folders
+
+            let mut response = format!("# {}\n\n", path);
+            folders.sort();
+            for item in folders {
+                response += &format!("=> {} {}\n", pathutil::join(path, &item), item);
+            }
+            files.sort();
+            for item in files {
+                response += &format!("=> {} {}\n", pathutil::join(path, &item), item);
+            }
+
+            return Ok(response);
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "This is neither a file or a folder"
+        ))
+    }
+}
+
 #[async_trait]
 impl Capsule for FileCapsule {
     fn get_capsule(&self) -> &CapsuleConfig {
         &self.capsule
     }
-    fn test(&self, _domain: &str, path: &str) -> bool {
+    fn test(&self, _domain: &str, file: &str) -> bool {
         if self.extensions.is_empty() {
             return true;
         }
-        let name = pathutil::basename(path);
+        let name = pathutil::basename(file);
         let (_name, ext) = pathutil::splitext(&name);
         if !ext.is_empty() && !self.extensions.contains(&ext) {
             return false;
@@ -39,9 +100,31 @@ impl Capsule for FileCapsule {
         true
     }
     async fn serve(&self, request: &gemini::Request) -> Result<String, Box<dyn std::error::Error>> {
-        let _file = pathutil::join(&self.directory, &request.path);
+        let file = pathutil::join(&self.directory, &request.path);
 
-        Ok(String::from("20 text/gemini\r\nHello World!\n"))
+        // Redirect the request to have ending '/' for directories, and no ending '/' for files
+        let (_name, ext) = pathutil::splitext(&request.path);
+        if ext.is_empty() && !request.path.ends_with("/") {
+            return Ok(format!("31 {}/\r\n", request.path));
+        } else if !ext.is_empty() && request.path.ends_with("/") {
+            return Ok(format!("31 {}\r\n", &request.path[0 .. request.path.len() - 1]));
+        }
+
+
+        let (response, meta, body) = match self.read_file(&file, &request.path).await {
+            Ok(response) => (20, String::from("text/gemini"), Some(response)),
+            Err(err) => {
+                match err.kind() {
+                    io::ErrorKind::PermissionDenied => (51, String::from("Permission Denied"), None),
+                    _ => (51, String::from("File not found"), None)
+                }
+            }
+        };
+
+        Ok(match body {
+            Some(content) => format!("{} {}\r\n{}", response, meta, content),
+            None => format!("{} {}\r\n", response, meta),
+        })
     }
 }
 
