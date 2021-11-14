@@ -5,7 +5,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use std::sync::Arc;
 use std::str;
 
-use crate::pem;
+use crate::{capsule, pem};
 use crate::gemini;
 
 pub struct SniCert {
@@ -26,11 +26,12 @@ impl SniCert {
     }
 }
 
-
-pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve(listen: &str, certs: Vec<SniCert>, capsules: Vec<Arc<dyn capsule::Capsule>>) -> Result<(), Box<dyn std::error::Error>> {
     let mut sni = server::ResolvesServerCertUsingSni::new();
 
-    for cert in certs {
+    // let acapsules = Arc::new(capsules);
+
+    for cert in &certs {
         println!("Loading certificate for {}", cert.name);
         let key = sign::any_supported_type(&cert.key)
             .map_err(|_| rustls::Error::General("invalid private key".into()))?;
@@ -52,6 +53,8 @@ pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std
         let acceptor = acceptor.clone();
         println!("Receiving request from {:?}", peer_addr);
 
+        let caps = capsules.clone();
+
         let fut = async move {
             let mut stream = acceptor.accept(stream).await?;
 
@@ -64,12 +67,31 @@ pub async fn serve(listen: &str, certs: &Vec<SniCert>) -> Result<(), Box<dyn std
 
             // Parse the request
             let request = gemini::Request::parse(header)?;
-            println!("Header: '{:?}'", request);
 
-            // TODO: Process the request
+            // Process the request
+            for capsule in caps {
+                if !capsule.get_capsule().test(&request.domain, &request.path) {
+                    continue;
+                }
+                if !capsule.test(&request.domain, &request.path) {
+                    continue;
+                }
+                let response = match capsule.serve(&request).await {
+                    Ok(response) => response,
+                    Err(err) => {
+                        eprint!("Error while generating response: {:?}", err);
+                        format!(
+                            "42 An error occurred while generating your response\r\n"
+                        )
+                    }
+                };
+                stream.write(response.as_bytes()).await?;
+                stream.shutdown().await?;
+                return Ok(()) as Result<(), Box<dyn std::error::Error>>;
+            }
 
-            // TODO: Send the response
-            let response = "20 text/gemini\r\nHello World!\n";
+            // Send the response for no willing capsules
+            let response = "51 There are no capsules willing to take your request\r\n";
             stream.write(&response.as_bytes()).await?;
             stream.shutdown().await?;
 
