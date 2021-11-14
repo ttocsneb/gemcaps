@@ -1,4 +1,4 @@
-use std::io;
+use std::{collections::HashMap, io};
 
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -129,7 +129,6 @@ pub fn dirname(path: &str) -> String {
 /// ```
 /// 
 pub fn expand(path: &str) -> io::Result<String> {
-    let path = String::from(path);
     // Assert absolute paths
     if path.starts_with('/') {
         // expand the absolute path as a relative path, then perform the checks on it.
@@ -158,6 +157,26 @@ pub fn expand(path: &str) -> io::Result<String> {
         }
     }
     Ok(expanded.join("/"))
+}
+
+fn load_mimetypes(path: &str) -> io::Result<HashMap<String, String>> {
+    let mimetypes = std::fs::read_to_string(path)?;
+    Ok(toml::from_str(&mimetypes)?)
+}
+
+/// Get the mimetype of a file from the filename
+/// 
+/// This will load any available mime types from the 'mime-types.toml' file
+pub fn get_mimetype(path: &str) -> &str {
+    lazy_static! {
+        static ref MIMETYPES: HashMap<String, String> = load_mimetypes("mime-types.toml").unwrap();
+    }
+    let (_name, ext) = splitext(path);
+    if ext.is_empty() {
+        return MIMETYPES.get("bin").unwrap().as_str();
+    }
+    let ext = &ext[1 ..];
+    return MIMETYPES.get(ext).or(MIMETYPES.get("bin")).unwrap().as_str();
 }
 
 
@@ -216,5 +235,12 @@ mod tests {
         assert_eq!(expand("/foo/bar/../../").unwrap(), "/");
         assert_eq!(expand("foo/bar/../../../").unwrap(), "../");
         expand("/foo/bar/../../../").expect_err("Expected an error with too many updirs");
+    }
+
+    #[test]
+    fn test_mimetypes() {
+        assert_eq!(get_mimetype("foo.js"), "text/javascript");
+        assert_eq!(get_mimetype("foo.gmi"), "text/gemini");
+        assert_eq!(get_mimetype("foo"), "application/octet-stream");
     }
 }

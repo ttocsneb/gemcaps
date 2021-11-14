@@ -27,12 +27,12 @@ impl FileCapsule {
     /// 
     /// file is the file on disk.
     /// path is the file on the server.
-    async fn read_file(&self, file: &str, path: &str) -> io::Result<String> {
-        // TODO: Retreive mimetype
+    async fn read_file(&self, file: &str, path: &str) -> io::Result<(String, String)> {
+        let mime_type = pathutil::get_mimetype(file).to_string();
 
         let metadata = fs::metadata(file).await?;
         if metadata.is_file() {
-            return fs::read_to_string(file).await;
+            return Ok((mime_type, fs::read_to_string(file).await?));
         }
         if metadata.is_dir() {
             let mut dirs = fs::read_dir(file).await?;
@@ -51,7 +51,8 @@ impl FileCapsule {
                     }
                     files.push(String::from(name));
                     if filename.to_ascii_lowercase() == "index" {
-                        return fs::read_to_string(ent.path()).await;
+                        let mime_type = pathutil::get_mimetype(ent.path().as_os_str().to_str().unwrap()).to_string();
+                        return Ok((mime_type, fs::read_to_string(ent.path()).await?));
                     }
                 }
             }
@@ -72,8 +73,8 @@ impl FileCapsule {
             for item in files {
                 response += &format!("=> {} {}\n", pathutil::join(path, &item), item);
             }
-
-            return Ok(response);
+            let mime_type = String::from("text/gemini");
+            return Ok((mime_type, response));
         }
 
         Err(io::Error::new(
@@ -97,6 +98,9 @@ impl Capsule for FileCapsule {
         if !ext.is_empty() && !self.extensions.contains(&ext) {
             return false;
         }
+        if let Err(_) = pathutil::expand(file) {
+            return false;
+        }
         true
     }
     async fn serve(&self, request: &gemini::Request) -> Result<String, Box<dyn std::error::Error>> {
@@ -112,7 +116,7 @@ impl Capsule for FileCapsule {
 
 
         let (response, meta, body) = match self.read_file(&file, &request.path).await {
-            Ok(response) => (20, String::from("text/gemini"), Some(response)),
+            Ok((meta, response)) => (20, meta, Some(response)),
             Err(err) => {
                 match err.kind() {
                     io::ErrorKind::PermissionDenied => (51, String::from("Permission Denied"), None),
