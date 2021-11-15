@@ -147,11 +147,11 @@ impl Loader for FileConfigLoader {
         false
     }
 
-    fn load(&self, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>> {
+    fn load(&self, path: &str, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>> {
         let files: FileConfig = value["files"].clone().try_into()?;
         Ok(Arc::new(FileCapsule {
             capsule: conf,
-            directory: files.directory,
+            directory: pathutil::abspath(&pathutil::dirname(&pathutil::dirname(path)), &files.directory),
             extensions: files.extensions,
             serve_folders: files.serve_folders,
         }))

@@ -60,7 +60,7 @@ pub trait Loader {
     /// Check if the loader is willing to load the config
     fn can_load(&self, value: &Value) -> bool;
     /// Load the config file
-    fn load(&self, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>>;
+    fn load(&self, path: &str, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>>;
 }
 
 /// Load a capsule given a config path and a list of loaders
@@ -71,7 +71,7 @@ pub async fn load_capsule(path: &str, loaders: &[Arc<dyn Loader>]) -> Result<Arc
 
     for loader in loaders {
         if loader.as_ref().can_load(&value) {
-            return Ok(loader.load(config, value)?);
+            return Ok(loader.load(path, config, value)?);
         }
     }
     return Err(Box::new(io::Error::new(

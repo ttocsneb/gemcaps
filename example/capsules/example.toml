@@ -1,0 +1,8 @@
+name = "Foo"
+domain = "localhost"
+rules = []
+
+[files]
+directory = "dist"
+extensions = []
+serve_folders = true

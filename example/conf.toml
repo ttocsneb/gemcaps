@@ -1,0 +1,4 @@
+listen = "0.0.0.0:1965"
+
+[certificates]
+"localhost" = { cert = "server.crt", key = "server.key" }

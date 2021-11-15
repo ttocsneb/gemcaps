@@ -49,6 +49,27 @@ macro_rules! join {
     );
 }
 
+/// Make a path absolute given a base path
+/// 
+/// If path is an absolute path, then path is returned, otherwise
+/// join(base, path) is returned
+/// 
+/// # Example
+/// 
+/// ```rust
+/// let abs = abspath("/foo/bar", "/cheese/qwerty");
+/// assert_eq!(abs, "/cheese/qwerty");
+/// let abs = abspath("/foo/bar", "cheese/qwerty");
+/// assert_eq!(abs, "/foo/bar/cheese/qwerty");
+/// ```
+/// 
+pub fn abspath(base: &str, path: &str) -> String {
+    if path.starts_with("/") {
+        return String::from(path);
+    }
+    join(base, path)
+}
+
 
 /// Split the name from the extension
 /// 
@@ -108,6 +129,9 @@ pub fn basename(path: &str) -> String {
 pub fn dirname(path: &str) -> String {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"^.*/").unwrap();
+    }
+    if path.ends_with("/") {
+        return dirname(&path[0 .. path.len() - 1]);
     }
     match RE.find(path) {
         Some(m) => String::from(m.as_str()),
@@ -225,6 +249,7 @@ mod tests {
         assert_eq!(dirname("asdf/qwerty"), "asdf/");
         assert_eq!(dirname("/qwerty"), "/");
         assert_eq!(dirname("qwerty"), "");
+        assert_eq!(dirname("asdf/qwerty/"), "asdf/");
     }
 
     #[test]

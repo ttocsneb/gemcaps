@@ -51,9 +51,9 @@ pub async fn serve(listen: &str, certs: Vec<SniCert>, capsules: Vec<Arc<dyn caps
     loop {
         let (stream, peer_addr) = listener.accept().await?;
         let acceptor = acceptor.clone();
+        let caps = capsules.clone();
         println!("Receiving request from {:?}", peer_addr);
 
-        let caps = capsules.clone();
 
         let fut = async move {
             let mut stream = acceptor.accept(stream).await?;
