@@ -12,12 +12,18 @@ mod pathutil;
 #[tokio::main]
 async fn main() {
 
-    let config_dir = std::env::args().nth(1).expect("A config directory was expected");
+    let config_dir = match std::env::args().nth(1) {
+        Some(arg) => arg,
+        None => {
+            eprintln!("Usage: {} CONFIG", std::env::args().nth(0).unwrap_or("gemcaps".to_string()));
+            return;
+        }
+    };
 
     let sett = match settings::load_settings(&config_dir).await {
         Ok(val) => val,
         Err(e) => {
-            println!("Could not load settings: {}", e.to_string());
+            eprintln!("Could not load settings: {}", e.to_string());
             return;
         }
     };
@@ -25,20 +31,35 @@ async fn main() {
     let mut sni_certs: Vec<SniCert> = Vec::new();
 
     for (server, cert) in &sett.certificates {
-        sni_certs.push(server::SniCert::load(
+        let cert = match server::SniCert::load(
             server, 
             &pathutil::abspath(&config_dir, &cert.cert),
             &pathutil::abspath(&config_dir,&cert.key)
-        ).unwrap());
+        ) {
+            Ok(cert) => cert,
+            Err(err) => {
+                eprintln!("Could not read certificate '{}': {}", server, err.to_string());
+                return;
+            }
+        };
+        sni_certs.push(cert);
     }
     
     let loaders: [Arc<dyn capsule::Loader>; 1] = [
         Arc::new(capsule::files::FileConfigLoader)
     ];
-    let capsules = capsule::load_capsules(
+    let capsules = match capsule::load_capsules(
         &pathutil::abspath(&config_dir, &sett.capsules),
         &loaders
-    ).await.unwrap();
+    ).await {
+        Ok(capsules) => capsules,
+        Err(err) => {
+            eprintln!("Error while loading capsules: {}", err.to_string());
+            return;
+        }
+    };
 
-    server::serve(&sett.listen, sni_certs, capsules).await.unwrap();
+    if let Err(err) = server::serve(&sett.listen, sni_certs, capsules).await {
+        eprintln!("Error: {}", err.to_string());
+    }
 }

@@ -13,9 +13,9 @@ const DEFAULT_CAPSULES: &str = "capsules";
 
 #[derive(Serialize, Deserialize)]
 struct SettingsConf {
-    listen: String,
-    certificates: HashMap<String, Cert>,
+    listen: Option<String>,
     capsules: Option<String>,
+    certificates: HashMap<String, Cert>,
 }
 
 pub struct Settings {
@@ -52,7 +52,7 @@ pub async fn load_settings(dir: &str) -> Result<Settings, Box<dyn Error>> {
     };
     let sett: SettingsConf = toml::from_str(&res)?;
     Ok(Settings {
-        listen: sett.listen,
+        listen: sett.listen.unwrap_or_else(|| DEFAULT_LISTEN.to_string()),
         certificates: sett.certificates,
         capsules: sett.capsules.unwrap_or_else(|| DEFAULT_CAPSULES.to_string()),
         config_dir: String::from(dir),
@@ -61,7 +61,7 @@ pub async fn load_settings(dir: &str) -> Result<Settings, Box<dyn Error>> {
 
 pub async fn save_settings(sett: &Settings) -> Result<(), Box<dyn Error>> {
     let conf = SettingsConf {
-        listen: sett.listen.to_owned(),
+        listen: Some(sett.listen.to_owned()),
         certificates: sett.certificates.to_owned(),
         capsules: Some(sett.capsules.to_owned()),
     };

@@ -38,7 +38,6 @@ pub async fn serve(listen: &str, certs: Vec<SniCert>, capsules: Vec<Arc<dyn caps
         sni.add(&cert.name, sign::CertifiedKey::new(cert.cert.clone(), key))?;
     }
 
-    println!("Creating Config");
     let config = rustls::ServerConfig::builder()
         .with_safe_defaults()
         .with_no_client_auth() // TODO Make Client Auth Resolver
@@ -49,10 +48,9 @@ pub async fn serve(listen: &str, certs: Vec<SniCert>, capsules: Vec<Arc<dyn caps
     println!("Listening on {}", listen);
 
     loop {
-        let (stream, peer_addr) = listener.accept().await?;
+        let (stream, _peer_addr) = listener.accept().await?;
         let acceptor = acceptor.clone();
         let caps = capsules.clone();
-        println!("Receiving request from {:?}", peer_addr);
 
 
         let fut = async move {
@@ -85,6 +83,18 @@ pub async fn serve(listen: &str, certs: Vec<SniCert>, capsules: Vec<Arc<dyn caps
                         )
                     }
                 };
+                if let Some((header, _body)) = response.split_once("\r\n") {
+                    if let Some((code, _meta)) = header.split_once(" ") {
+                        println!("{} {}{} [{}]", capsule.get_capsule().name, request.domain, request.path, code);
+                    } else {
+                        println!("{} {}{} [{}]", capsule.get_capsule().name, request.domain, request.path, header);
+                    }
+                } else {
+                    eprintln!("{} {}{}: Invalid Response Header\n{}", request.domain, request.path, capsule.get_capsule().name, response);
+                    stream.write("42 Invalid Response Generated\r\n".as_bytes()).await?;
+                    stream.shutdown().await?;
+                    return Ok(()) as Result<(), Box<dyn std::error::Error>>;
+                }
                 stream.write(response.as_bytes()).await?;
                 stream.shutdown().await?;
                 return Ok(()) as Result<(), Box<dyn std::error::Error>>;
