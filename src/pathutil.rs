@@ -193,7 +193,8 @@ fn load_mimetypes(path: &str) -> io::Result<HashMap<String, String>> {
 /// This will load any available mime types from the 'mime-types.toml' file
 pub fn get_mimetype(path: &str) -> &str {
     lazy_static! {
-        static ref MIMETYPES: HashMap<String, String> = load_mimetypes("mime-types.toml").unwrap();
+        static ref CONFIG_DIR: String = std::env::args().nth(1).expect("A config directory was expected");
+        static ref MIMETYPES: HashMap<String, String> = load_mimetypes(&join(&CONFIG_DIR, "mime-types.toml")).unwrap();
     }
     let (_name, ext) = splitext(path);
     if ext.is_empty() {
