@@ -29,8 +29,6 @@ impl SniCert {
 pub async fn serve(listen: &str, certs: Vec<SniCert>, capsules: Vec<Arc<dyn capsule::Capsule>>) -> Result<(), Box<dyn std::error::Error>> {
     let mut sni = server::ResolvesServerCertUsingSni::new();
 
-    // let acapsules = Arc::new(capsules);
-
     for cert in &certs {
         println!("Loading certificate for {}", cert.name);
         let key = sign::any_supported_type(&cert.key)

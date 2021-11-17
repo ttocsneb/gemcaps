@@ -8,6 +8,7 @@ mod pem;
 mod gemini;
 mod capsule;
 mod pathutil;
+mod cache;
 
 #[tokio::main]
 async fn main() {
