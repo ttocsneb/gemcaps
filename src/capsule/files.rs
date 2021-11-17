@@ -95,7 +95,7 @@ impl Capsule for FileCapsule {
         }
         let name = pathutil::basename(file);
         let (_name, ext) = pathutil::splitext(&name);
-        if !ext.is_empty() && !self.extensions.contains(&ext) {
+        if !ext.is_empty() && !self.extensions.iter().any(|x| x == ext) {
             return false;
         }
         if let Err(_) = pathutil::expand(file) {
@@ -151,7 +151,7 @@ impl Loader for FileConfigLoader {
         let files: FileConfig = value["files"].clone().try_into()?;
         Ok(Arc::new(FileCapsule {
             capsule: conf,
-            directory: pathutil::abspath(&pathutil::dirname(&pathutil::dirname(path)), &files.directory),
+            directory: pathutil::abspath(pathutil::dirnames(path, 2), &files.directory),
             extensions: files.extensions,
             serve_folders: files.serve_folders,
         }))

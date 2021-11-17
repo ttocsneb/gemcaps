@@ -1,4 +1,4 @@
-name = "Foo"
+name = "Example"
 domain = "localhost"
 rules = []
 

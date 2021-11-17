@@ -3,6 +3,33 @@ use std::{collections::HashMap, io};
 use regex::Regex;
 use lazy_static::lazy_static;
 
+/// Check if the path is an absolute path or not
+/// 
+/// This does work with windows paths
+/// 
+/// # Example
+/// 
+/// ```rust
+/// assert_true!(is_abs("/foo/bar"));
+/// assert_true!(is_abs("C:\\foo\\bar"));
+/// assert_false!(is_abs("foo/bar"));
+/// ```
+pub fn is_abs(path: &str) -> bool {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"^([a-zA-Z]:|/)").unwrap();
+    }
+    RE.is_match(path)
+}
+
+fn ends_with_slash(path: &str) -> bool {
+    path.ends_with('/') || path.ends_with('\\')
+}
+
+fn starts_with_slash(path: &str) -> bool {
+    path.starts_with('/') || path.starts_with('\\')
+}
+
+
 /// Join two paths together.
 /// 
 /// This will make sure that there are no duplicate '/' where the two paths are
@@ -16,10 +43,10 @@ use lazy_static::lazy_static;
 /// ```
 /// 
 pub fn join(path_a: &str, path_b: &str) -> String {
-    if path_a.ends_with("/") {
+    if ends_with_slash(path_a) {
         return join(&path_a[0 .. path_a.len() - 1], path_b);
     }
-    if path_b.starts_with("/") {
+    if starts_with_slash(path_b) {
         return join(path_a, &path_b[1 ..]);
     }
     format!("{}/{}", path_a, path_b)
@@ -64,7 +91,7 @@ macro_rules! join {
 /// ```
 /// 
 pub fn abspath(base: &str, path: &str) -> String {
-    if path.starts_with("/") {
+    if is_abs(path) {
         return String::from(path);
     }
     join(base, path)
@@ -80,18 +107,18 @@ pub fn abspath(base: &str, path: &str) -> String {
 /// assert_eq!(name, "foo");
 /// assert_eq!(ext, ".bar");
 /// ```
-pub fn splitext(path: &str) -> (String, String) {
+pub fn splitext<'a>(path: &'a str) -> (&'a str, &'a str) {
     lazy_static! {
         static ref RE: Regex = Regex::new(r"(.*)(\..*)").unwrap();
     }
     let groups = match RE.captures(path) {
         Some(groups) => groups,
         None => {
-            return (String::from(path), String::from(""));
+            return (path, "");
         }
     };
-    let name = String::from(groups.get(1).map_or("", |m| m.as_str()));
-    let ext = String::from(groups.get(2).map_or("", |m| m.as_str()));
+    let name = groups.get(1).map_or("", |m| m.as_str());
+    let ext = groups.get(2).map_or("", |m| m.as_str());
     (name, ext)
 }
 
@@ -104,16 +131,16 @@ pub fn splitext(path: &str) -> (String, String) {
 /// assert_eq!(name, "cheese");
 /// ```
 /// 
-pub fn basename(path: &str) -> String {
+pub fn basename<'a>(path: &'a str) -> &'a str {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"/([^/]+)$").unwrap();
+        static ref RE: Regex = Regex::new(r"[/\\]([^/\\]+)$").unwrap();
     }
-    if path.ends_with("/") {
+    if ends_with_slash(path) {
         return basename(&path[0 .. path.len() - 1]);
     }
     match RE.captures(path) {
-        Some(m) => String::from(m.get(1).map_or("", |m| m.as_str())),
-        None => String::from(path),
+        Some(m) => m.get(1).map_or("", |m| m.as_str()),
+        None => path,
     }
 }
 
@@ -126,17 +153,34 @@ pub fn basename(path: &str) -> String {
 /// assert_eq!(name, "/foo/bar/");
 /// ```
 /// 
-pub fn dirname(path: &str) -> String {
+pub fn dirname<'a>(path: &'a str) -> &'a str {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"^.*/").unwrap();
+        static ref RE: Regex = Regex::new(r"^.*[/\\]").unwrap();
     }
-    if path.ends_with("/") {
+    if ends_with_slash(path) {
         return dirname(&path[0 .. path.len() - 1]);
     }
     match RE.find(path) {
-        Some(m) => String::from(m.as_str()),
-        None => String::from(""),
+        Some(m) => m.as_str(),
+        None => "",
     }
+}
+
+/// Run dirname multiple times
+/// 
+/// # Example
+/// 
+/// ```rust
+/// let dir = dirnames("/foo/bar/cheese", 2);
+/// assert_eq!(dir, "/foo/")
+/// ```
+/// 
+pub fn dirnames<'a>(path: &'a str, dirs: u32) -> &'a str {
+    let mut result = path;
+    for _ in 0 .. dirs {
+        result = dirname(result);
+    }
+    result
 }
 
 /// Expand any '.' or '..' in a path
@@ -153,20 +197,24 @@ pub fn dirname(path: &str) -> String {
 /// ```
 /// 
 pub fn expand(path: &str) -> io::Result<String> {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"^([a-zA-z]:[/\\]|/)(.*)").unwrap();
+    }
     // Assert absolute paths
-    if path.starts_with('/') {
+    if let Some(captures) = RE.captures(path) {
         // expand the absolute path as a relative path, then perform the checks on it.
-        let path = expand(&path[1 ..])?;
+        let path = expand(captures.get(2).unwrap().as_str())?;
         if path.starts_with("..") {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Cannot have a relative path beyond the root directory"
             ));
         }
-        return Ok(join("/", &path));
+        return Ok(join(captures.get(1).unwrap().as_str(), &path));
     }
     // Expand the relative path
     let mut expanded = Vec::new();
+    let path = path.replace("\\", "/");
     for part in path.split('/') {
         if part != "." && part != ".." {
             expanded.push(part);
@@ -183,8 +231,9 @@ pub fn expand(path: &str) -> io::Result<String> {
     Ok(expanded.join("/"))
 }
 
-fn load_mimetypes(path: &str) -> io::Result<HashMap<String, String>> {
-    let mimetypes = std::fs::read_to_string(path)?;
+fn load_mimetypes() -> io::Result<HashMap<String, String>> {
+    let config_dir = std::env::args().nth(1).unwrap_or_else(|| String::from("example"));
+    let mimetypes = std::fs::read_to_string(join(&config_dir, "mime-types.toml"))?;
     Ok(toml::from_str(&mimetypes)?)
 }
 
@@ -193,8 +242,7 @@ fn load_mimetypes(path: &str) -> io::Result<HashMap<String, String>> {
 /// This will load any available mime types from the 'mime-types.toml' file
 pub fn get_mimetype(path: &str) -> &str {
     lazy_static! {
-        static ref CONFIG_DIR: String = std::env::args().nth(1).expect("A config directory was expected");
-        static ref MIMETYPES: HashMap<String, String> = load_mimetypes(&join(&CONFIG_DIR, "mime-types.toml")).unwrap();
+        static ref MIMETYPES: HashMap<String, String> = load_mimetypes().unwrap();
     }
     let (_name, ext) = splitext(path);
     if ext.is_empty() {
@@ -254,13 +302,22 @@ mod tests {
     }
 
     #[test]
+    fn test_dirnames() {
+        assert_eq!(dirnames("asdf/qwerty", 1), "asdf/");
+        assert_eq!(dirnames("asdf/qwerty", 2), "");
+        assert_eq!(dirnames("/asdf/qwerty", 2), "/");
+    }
+
+    #[test]
     fn test_expand() {
         assert_eq!(expand("/foo/bar").unwrap(), "/foo/bar");
         assert_eq!(expand("/foo/bar/").unwrap(), "/foo/bar/");
         assert_eq!(expand("/foo/bar/../").unwrap(), "/foo/");
+        assert_eq!(expand("C:\\foo\\bar\\..\\").unwrap(), "C:/foo/");
         assert_eq!(expand("/foo/bar/../../").unwrap(), "/");
         assert_eq!(expand("foo/bar/../../../").unwrap(), "../");
         expand("/foo/bar/../../../").expect_err("Expected an error with too many updirs");
+        expand("C:\\foo\\bar\\..\\..\\..\\").expect_err("Expected an error with too many updirs");
     }
 
     #[test]
