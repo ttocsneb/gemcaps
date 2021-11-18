@@ -13,6 +13,8 @@ pub struct FileConfig {
     pub directory: String,
     pub extensions: Vec<String>,
     pub serve_folders: bool,
+    pub do_cache: Option<bool>,
+    pub cache: Option<f32>,
 }
 
 pub struct FileCapsule {
@@ -20,6 +22,7 @@ pub struct FileCapsule {
     directory: String,
     extensions: Vec<String>,
     serve_folders: bool,
+    cache: Option<f32>,
 }
 
 impl FileCapsule {
@@ -103,15 +106,15 @@ impl Capsule for FileCapsule {
         }
         true
     }
-    async fn serve(&self, request: &gemini::Request) -> Result<String, Box<dyn std::error::Error>> {
+    async fn serve(&self, request: &gemini::Request) -> Result<(String, Option<f32>), Box<dyn std::error::Error>> {
         let file = pathutil::join(&self.directory, &request.path);
 
         // Redirect the request to have ending '/' for directories, and no ending '/' for files
         let (_name, ext) = pathutil::splitext(&request.path);
         if ext.is_empty() && !request.path.ends_with("/") {
-            return Ok(format!("31 {}/\r\n", request.path));
+            return Ok((format!("31 {}/\r\n", request.path), self.cache));
         } else if !ext.is_empty() && request.path.ends_with("/") {
-            return Ok(format!("31 {}\r\n", &request.path[0 .. request.path.len() - 1]));
+            return Ok((format!("31 {}\r\n", &request.path[0 .. request.path.len() - 1]), self.cache));
         }
 
 
@@ -125,10 +128,10 @@ impl Capsule for FileCapsule {
             }
         };
 
-        Ok(match body {
+        Ok((match body {
             Some(content) => format!("{} {}\r\n{}", response, meta, content),
             None => format!("{} {}\r\n", response, meta),
-        })
+        }, self.cache))
     }
 }
 
@@ -154,6 +157,10 @@ impl Loader for FileConfigLoader {
             directory: pathutil::abspath(pathutil::dirnames(path, 2), &files.directory),
             extensions: files.extensions,
             serve_folders: files.serve_folders,
+            cache: match files.do_cache.unwrap_or_else(|| true) {
+                true => Some(files.cache.unwrap_or_else(|| 0.0)),
+                false => None,
+            },
         }))
     }
 }

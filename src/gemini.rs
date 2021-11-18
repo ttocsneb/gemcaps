@@ -66,6 +66,7 @@ fn parse_request(request: &str) -> io::Result<(String, String, String, String)> 
 }
 
 
+#[derive(Clone, Hash, PartialEq, Eq)]
 pub struct Request {
     pub protocol: String,
     pub domain: String,

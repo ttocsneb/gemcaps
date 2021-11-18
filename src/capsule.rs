@@ -51,9 +51,19 @@ impl CapsuleConfig {
 
 #[async_trait]
 pub trait Capsule : Send + Sync + 'static {
+    /// Get the general capsule settings for this capsule
     fn get_capsule(&self) -> &CapsuleConfig;
+    /// Test whether this capsule is willing to handle the given request
     fn test(&self, domain: &str, path: &str) -> bool;
-    async fn serve(&self, request: &gemini::Request) -> Result<String, Box<dyn std::error::Error>>;
+    /// Serve a client's request
+    /// 
+    /// This should return a string of the full response including headers e.g.
+    /// "20 text/gemini\r\nHello World" and the time to cache this response.
+    /// 
+    /// If the cache time is 0.0, then the default cache time will be used for this response.
+    /// If No cache time is given, then no cache will be made.
+    /// 
+    async fn serve(&self, request: &gemini::Request) -> Result<(String, Option<f32>), Box<dyn std::error::Error>>;
 }
 
 pub trait Loader {

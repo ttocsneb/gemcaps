@@ -1,2 +1,4 @@
+cache = 60
+
 [certificates]
 "localhost" = { cert = "server.crt", key = "server.key" }

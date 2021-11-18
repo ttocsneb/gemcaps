@@ -60,7 +60,7 @@ async fn main() {
         }
     };
 
-    if let Err(err) = server::serve(&sett.listen, sni_certs, capsules).await {
+    if let Err(err) = server::serve(&sett.listen, &sett, sni_certs, capsules).await {
         eprintln!("Error: {}", err.to_string());
     }
 }
