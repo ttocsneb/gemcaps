@@ -3,6 +3,7 @@ use tokio::sync::Mutex;
 use tokio_rustls::rustls::{self, Certificate, PrivateKey, sign, server};
 use tokio_rustls::TlsAcceptor;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::path::Path;
 use std::sync::Arc;
 use std::str;
 use std::time::{Duration, SystemTime};
@@ -18,7 +19,7 @@ pub struct SniCert {
 }
 
 impl SniCert {
-    pub fn load(server_name: &str, cert_file: &str, key_file: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn load(server_name: &str, cert_file: impl AsRef<Path>, key_file: impl AsRef<Path>) -> Result<Self, Box<dyn std::error::Error>> {
         let cert = pem::read_cert(&cert_file)?;
         let key = pem::read_key(&key_file)?;
         Ok(SniCert {

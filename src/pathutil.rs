@@ -1,34 +1,7 @@
-use std::{collections::HashMap, io};
+use std::{collections::HashMap, io, path::{Component, Path, PathBuf}};
 
 use regex::Regex;
 use lazy_static::lazy_static;
-
-/// Check if the path is an absolute path or not
-/// 
-/// This does work with windows paths
-/// 
-/// # Example
-/// 
-/// ```rust
-/// assert_true!(is_abs("/foo/bar"));
-/// assert_true!(is_abs("C:\\foo\\bar"));
-/// assert_false!(is_abs("foo/bar"));
-/// ```
-pub fn is_abs(path: &str) -> bool {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"^([a-zA-Z]:|/)").unwrap();
-    }
-    RE.is_match(path)
-}
-
-fn ends_with_slash(path: &str) -> bool {
-    path.ends_with('/') || path.ends_with('\\')
-}
-
-fn starts_with_slash(path: &str) -> bool {
-    path.starts_with('/') || path.starts_with('\\')
-}
-
 
 /// Join two paths together.
 /// 
@@ -43,10 +16,10 @@ fn starts_with_slash(path: &str) -> bool {
 /// ```
 /// 
 pub fn join(path_a: &str, path_b: &str) -> String {
-    if ends_with_slash(path_a) {
+    if path_a.ends_with('/') {
         return join(&path_a[0 .. path_a.len() - 1], path_b);
     }
-    if starts_with_slash(path_b) {
+    if path_b.starts_with('/') {
         return join(path_a, &path_b[1 ..]);
     }
     format!("{}/{}", path_a, path_b)
@@ -90,11 +63,58 @@ macro_rules! join {
 /// assert_eq!(abs, "/foo/bar/cheese/qwerty");
 /// ```
 /// 
-pub fn abspath(base: &str, path: &str) -> String {
-    if is_abs(path) {
-        return String::from(path);
+pub fn abspath(base: impl AsRef<Path>, path: impl AsRef<Path>) -> PathBuf {
+    let base = base.as_ref();
+    let path = path.as_ref();
+    if path.is_absolute() {
+        return path.to_path_buf();
     }
-    join(base, path)
+    base.join(path)
+}
+
+/// Traverse a path that contains ParentDir (..) safely.
+/// 
+/// If the path traversal leaves the current path, then an error is returned.
+/// Otherwise the traversed path is returned
+/// 
+/// # Example
+/// 
+/// ```rust
+/// let traversed = traversal_safe("/foo/bar/../cheese").unwrap();
+/// assert_eq!(traversed, "/foo/cheese");
+/// traversal_safe("/foo/bar/../../..").expect_err("Should return an error");
+/// ```
+pub fn traversal_safe(path: impl AsRef<Path>) -> Result<PathBuf, std::io::Error> {
+    let path = path.as_ref();
+    let mut result = Vec::new();
+    for component in path.components() {
+        if component == Component::ParentDir {
+            match result.pop() {
+                Some(comp) => {
+                    if comp == Component::RootDir {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput, 
+                            "Cannot traverse outside of the root directory"
+                        ));
+                    }
+                },
+                None => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "Tried to traverse outside the local directory"
+                    ));
+                }
+            }
+        } else {
+            result.push(component);
+        }
+    }
+    let mut result_path = PathBuf::new();
+    for component in result {
+        result_path.push(component);
+    }
+
+    return Ok(result_path);
 }
 
 
@@ -133,54 +153,15 @@ pub fn splitext<'a>(path: &'a str) -> (&'a str, &'a str) {
 /// 
 pub fn basename<'a>(path: &'a str) -> &'a str {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"[/\\]([^/\\]+)$").unwrap();
+        static ref RE: Regex = Regex::new(r"/([^/]+)$").unwrap();
     }
-    if ends_with_slash(path) {
+    if path.ends_with('/') {
         return basename(&path[0 .. path.len() - 1]);
     }
     match RE.captures(path) {
         Some(m) => m.get(1).map_or("", |m| m.as_str()),
         None => path,
     }
-}
-
-/// Get the parent elements in the path
-/// 
-/// # Example
-/// 
-/// ```rust
-/// let name = basename("/foo/bar/cheese");
-/// assert_eq!(name, "/foo/bar/");
-/// ```
-/// 
-pub fn dirname<'a>(path: &'a str) -> &'a str {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"^.*[/\\]").unwrap();
-    }
-    if ends_with_slash(path) {
-        return dirname(&path[0 .. path.len() - 1]);
-    }
-    match RE.find(path) {
-        Some(m) => m.as_str(),
-        None => "",
-    }
-}
-
-/// Run dirname multiple times
-/// 
-/// # Example
-/// 
-/// ```rust
-/// let dir = dirnames("/foo/bar/cheese", 2);
-/// assert_eq!(dir, "/foo/")
-/// ```
-/// 
-pub fn dirnames<'a>(path: &'a str, dirs: u32) -> &'a str {
-    let mut result = path;
-    for _ in 0 .. dirs {
-        result = dirname(result);
-    }
-    result
 }
 
 /// Expand any '.' or '..' in a path
@@ -198,19 +179,19 @@ pub fn dirnames<'a>(path: &'a str, dirs: u32) -> &'a str {
 /// 
 pub fn expand(path: &str) -> io::Result<String> {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"^([a-zA-z]:[/\\]|/)(.*)").unwrap();
+        static ref RE: Regex = Regex::new(r"^/(.*)").unwrap();
     }
     // Assert absolute paths
     if let Some(captures) = RE.captures(path) {
         // expand the absolute path as a relative path, then perform the checks on it.
-        let path = expand(captures.get(2).unwrap().as_str())?;
+        let path = expand(captures.get(1).unwrap().as_str())?;
         if path.starts_with("..") {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 "Cannot have a relative path beyond the root directory"
             ));
         }
-        return Ok(join(captures.get(1).unwrap().as_str(), &path));
+        return Ok(join("/", &path));
     }
     // Expand the relative path
     let mut expanded = Vec::new();
@@ -240,16 +221,18 @@ fn load_mimetypes() -> io::Result<HashMap<String, String>> {
 /// Get the mimetype of a file from the filename
 /// 
 /// This will load any available mime types from the 'mime-types.toml' file
-pub fn get_mimetype(path: &str) -> &str {
+pub fn get_mimetype(path: impl AsRef<Path>) -> &'static str {
     lazy_static! {
         static ref MIMETYPES: HashMap<String, String> = load_mimetypes().unwrap();
     }
-    let (_name, ext) = splitext(path);
-    if ext.is_empty() {
-        return MIMETYPES.get("bin").unwrap().as_str();
+    let path = path.as_ref();
+    if let Some(ext) = path.extension() {
+        return MIMETYPES.get(match ext.to_str() {
+            Some(ext) => ext,
+            None => "bin"
+        }).or_else(|| MIMETYPES.get("bin")).unwrap().as_str();
     }
-    let ext = &ext[1 ..];
-    return MIMETYPES.get(ext).or(MIMETYPES.get("bin")).unwrap().as_str();
+    return MIMETYPES.get("bin").unwrap().as_str();
 }
 
 
@@ -294,30 +277,13 @@ mod tests {
     }
 
     #[test]
-    fn test_dirname() {
-        assert_eq!(dirname("asdf/qwerty"), "asdf/");
-        assert_eq!(dirname("/qwerty"), "/");
-        assert_eq!(dirname("qwerty"), "");
-        assert_eq!(dirname("asdf/qwerty/"), "asdf/");
-    }
-
-    #[test]
-    fn test_dirnames() {
-        assert_eq!(dirnames("asdf/qwerty", 1), "asdf/");
-        assert_eq!(dirnames("asdf/qwerty", 2), "");
-        assert_eq!(dirnames("/asdf/qwerty", 2), "/");
-    }
-
-    #[test]
     fn test_expand() {
         assert_eq!(expand("/foo/bar").unwrap(), "/foo/bar");
         assert_eq!(expand("/foo/bar/").unwrap(), "/foo/bar/");
         assert_eq!(expand("/foo/bar/../").unwrap(), "/foo/");
-        assert_eq!(expand("C:\\foo\\bar\\..\\").unwrap(), "C:/foo/");
         assert_eq!(expand("/foo/bar/../../").unwrap(), "/");
         assert_eq!(expand("foo/bar/../../../").unwrap(), "../");
         expand("/foo/bar/../../../").expect_err("Expected an error with too many updirs");
-        expand("C:\\foo\\bar\\..\\..\\..\\").expect_err("Expected an error with too many updirs");
     }
 
     #[test]
@@ -325,5 +291,12 @@ mod tests {
         assert_eq!(get_mimetype("foo.js"), "text/javascript");
         assert_eq!(get_mimetype("foo.gmi"), "text/gemini");
         assert_eq!(get_mimetype("foo"), "application/octet-stream");
+    }
+
+    #[test]
+    fn test_traversal_safe() {
+        let traversed = traversal_safe("/foo/bar/../cheese").unwrap();
+        assert_eq!(traversed.to_str().unwrap(), "/foo/cheese");
+        traversal_safe("/foo/bar/../../..").expect_err("Expected an error");
     }
 }

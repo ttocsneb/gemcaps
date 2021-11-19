@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use toml::Value;
+use std::path::{Path, PathBuf};
 use std::{io, sync::Arc};
 use tokio::fs;
 use async_trait::async_trait;
@@ -19,7 +20,7 @@ pub struct FileConfig {
 
 pub struct FileCapsule {
     capsule: CapsuleConfig,
-    directory: String,
+    directory: PathBuf,
     extensions: Vec<String>,
     serve_folders: bool,
     cache: Option<f32>,
@@ -30,7 +31,8 @@ impl FileCapsule {
     /// 
     /// file is the file on disk.
     /// path is the file on the server.
-    async fn read_file(&self, file: &str, path: &str) -> io::Result<(String, String)> {
+    async fn read_file(&self, file: impl AsRef<Path>, path: &str) -> io::Result<(String, String)> {
+        let file = file.as_ref();
         let mime_type = pathutil::get_mimetype(file).to_string();
 
         let metadata = fs::metadata(file).await?;
@@ -107,7 +109,17 @@ impl Capsule for FileCapsule {
         true
     }
     async fn serve(&self, request: &gemini::Request) -> Result<(String, Option<f32>), Box<dyn std::error::Error>> {
-        let file = pathutil::join(&self.directory, &request.path);
+        let path = match request.path.starts_with('/') {
+            true => &request.path[1 ..],
+            false => &request.path,
+        };
+        let file = self.directory.join(match pathutil::traversal_safe(path) {
+            Ok(path) => path,
+            Err(_) => {
+                return Ok((format!("51 Permission Denied\r\n"), self.cache));
+            }
+        });
+        println!("file: {:?}", file);
 
         // Redirect the request to have ending '/' for directories, and no ending '/' for files
         let (_name, ext) = pathutil::splitext(&request.path);
@@ -150,11 +162,12 @@ impl Loader for FileConfigLoader {
         false
     }
 
-    fn load(&self, path: &str, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>> {
+    fn load(&self, path: &Path, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>> {
         let files: FileConfig = value["files"].clone().try_into()?;
+        let base = path.parent().unwrap().parent().unwrap();
         Ok(Arc::new(FileCapsule {
             capsule: conf,
-            directory: pathutil::abspath(pathutil::dirnames(path, 2), &files.directory),
+            directory: pathutil::abspath(base, files.directory),
             extensions: files.extensions,
             serve_folders: files.serve_folders,
             cache: match files.do_cache.unwrap_or_else(|| true) {

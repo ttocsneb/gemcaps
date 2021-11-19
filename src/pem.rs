@@ -1,17 +1,18 @@
 use std::fs;
 use std::io;
 use std::iter;
+use std::path::Path;
 use tokio_rustls::rustls::{Certificate, PrivateKey};
 use rustls_pemfile::{Item, read_one, certs};
 
 
 
-fn read_pem(filename: &str) -> io::Result<io::BufReader<fs::File>> {
+fn read_pem(filename: impl AsRef<Path>) -> io::Result<io::BufReader<fs::File>> {
     let f = fs::File::open(filename)?;
     Ok(io::BufReader::new(f))
 }
 
-pub fn read_cert(filename: &str) -> io::Result<Vec<Certificate>> {
+pub fn read_cert(filename: impl AsRef<Path>) -> io::Result<Vec<Certificate>> {
     let mut pem = read_pem(filename)?;
     Ok(certs(&mut pem)?
         .iter()
@@ -19,7 +20,7 @@ pub fn read_cert(filename: &str) -> io::Result<Vec<Certificate>> {
         .collect())
 }
 
-pub fn read_key(filename: &str) -> io::Result<PrivateKey> {
+pub fn read_key(filename: impl AsRef<Path>) -> io::Result<PrivateKey> {
     let mut pem = read_pem(filename)?;
     for item in iter::from_fn(|| read_one(&mut pem).transpose()) {
         match item? {

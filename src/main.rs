@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::path::Path;
 
 use crate::server::SniCert;
 
@@ -14,7 +15,7 @@ mod cache;
 async fn main() {
 
     let config_dir = match std::env::args().nth(1) {
-        Some(arg) => arg,
+        Some(arg) => Path::new(&arg).to_path_buf(),
         None => {
             eprintln!("Usage: {} CONFIG", std::env::args().nth(0).unwrap_or("gemcaps".to_string()));
             return;
@@ -34,8 +35,8 @@ async fn main() {
     for (server, cert) in &sett.certificates {
         let cert = match server::SniCert::load(
             server, 
-            &pathutil::abspath(&config_dir, &cert.cert),
-            &pathutil::abspath(&config_dir,&cert.key)
+            pathutil::abspath(&config_dir, &cert.cert),
+            pathutil::abspath(&config_dir,&cert.key)
         ) {
             Ok(cert) => cert,
             Err(err) => {
@@ -50,7 +51,7 @@ async fn main() {
         Arc::new(capsule::files::FileConfigLoader)
     ];
     let capsules = match capsule::load_capsules(
-        &pathutil::abspath(&config_dir, &sett.capsules),
+        pathutil::abspath(&config_dir, &sett.capsules),
         &loaders
     ).await {
         Ok(capsules) => capsules,

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use toml::Value;
+use std::path::Path;
 use std::{io, sync::Arc};
 use tokio::fs;
 use async_trait::async_trait;
@@ -70,11 +71,12 @@ pub trait Loader {
     /// Check if the loader is willing to load the config
     fn can_load(&self, value: &Value) -> bool;
     /// Load the config file
-    fn load(&self, path: &str, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>>;
+    fn load(&self, path: &Path, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>>;
 }
 
 /// Load a capsule given a config path and a list of loaders
-pub async fn load_capsule(path: &str, loaders: &[Arc<dyn Loader>]) -> Result<Arc<dyn Capsule>, Box<dyn std::error::Error>> {
+pub async fn load_capsule(path: impl AsRef<Path>, loaders: &[Arc<dyn Loader>]) -> Result<Arc<dyn Capsule>, Box<dyn std::error::Error>> {
+    let path = path.as_ref();
     let value = fs::read_to_string(path).await?.parse::<Value>()?;
     let conf: CapsuleConf = value.clone().try_into()?;
     let config = CapsuleConfig::from(conf)?;
@@ -91,7 +93,8 @@ pub async fn load_capsule(path: &str, loaders: &[Arc<dyn Loader>]) -> Result<Arc
 }
 
 /// Load all capsules in a directory using the given list of loaders
-pub async fn load_capsules(dir: &str, loaders: &[Arc<dyn Loader>]) -> Result<Vec<Arc<dyn Capsule>>, Box<dyn std::error::Error>> {
+pub async fn load_capsules(dir: impl AsRef<Path>, loaders: &[Arc<dyn Loader>]) -> Result<Vec<Arc<dyn Capsule>>, Box<dyn std::error::Error>> {
+    let dir = dir.as_ref();
     let mut dirs = match fs::read_dir(dir).await {
         Ok(dirs) => dirs,
         Err(err) => {

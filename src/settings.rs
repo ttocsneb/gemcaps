@@ -1,10 +1,9 @@
 use tokio::fs;
-use std::collections::HashMap;
+use std::path::PathBuf;
+use std::{collections::HashMap, path::Path};
 use std::error::Error;
 use std::io::ErrorKind;
 use serde::{Serialize, Deserialize};
-
-use crate::pathutil;
 
 const SETTINGS: &str = "conf.toml";
 const DEFAULT_LISTEN: &str = "0.0.0.0:1965";
@@ -21,7 +20,7 @@ struct SettingsConf {
 }
 
 pub struct Settings {
-    pub config_dir: String,
+    pub config_dir: PathBuf,
     pub listen: String,
     pub capsules: String,
     pub cache: f32,
@@ -35,8 +34,9 @@ pub struct Cert {
 }
 
 
-pub async fn load_settings(dir: &str) -> Result<Settings, Box<dyn Error>> {
-    let res = match fs::read_to_string(pathutil::join(dir, SETTINGS)).await {
+pub async fn load_settings(dir: impl AsRef<Path>) -> Result<Settings, Box<dyn Error>> {
+    let path = dir.as_ref();
+    let res = match fs::read_to_string(path.join(SETTINGS)).await {
         Err(e) => {
             if e.kind() != ErrorKind::NotFound {
                 return Err(Box::new(e));
@@ -45,7 +45,7 @@ pub async fn load_settings(dir: &str) -> Result<Settings, Box<dyn Error>> {
             let defaults = Settings {
                 listen: String::from(DEFAULT_LISTEN),
                 capsules: String::from(DEFAULT_CAPSULES),
-                config_dir: String::from(dir),
+                config_dir: path.to_path_buf(),
                 cache: DEFAULT_CACHE,
                 certificates: HashMap::new(),
             };
@@ -58,7 +58,7 @@ pub async fn load_settings(dir: &str) -> Result<Settings, Box<dyn Error>> {
     Ok(Settings {
         listen: sett.listen.unwrap_or_else(|| DEFAULT_LISTEN.to_string()),
         capsules: sett.capsules.unwrap_or_else(|| DEFAULT_CAPSULES.to_string()),
-        config_dir: String::from(dir),
+        config_dir: path.to_path_buf(),
         cache: sett.cache.unwrap_or_else(|| DEFAULT_CACHE),
         certificates: sett.certificates,
     })
@@ -72,6 +72,6 @@ pub async fn save_settings(sett: &Settings) -> Result<(), Box<dyn Error>> {
         cache: Some(sett.cache),
     };
     let content = toml::to_string(&conf)?;
-    fs::write(pathutil::join(&sett.config_dir, SETTINGS), content).await?;
+    fs::write(sett.config_dir.join(SETTINGS), content).await?;
     Ok(())
 }
