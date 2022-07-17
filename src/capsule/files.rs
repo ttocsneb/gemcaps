@@ -109,9 +109,9 @@ impl Capsule for FileCapsule {
         true
     }
     async fn serve(&self, request: &gemini::Request) -> Result<(String, Option<f32>), Box<dyn std::error::Error>> {
-        let path = match request.path.starts_with('/') {
-            true => &request.path[1 ..],
-            false => &request.path,
+        let path = match request.path().starts_with('/') {
+            true => &request.path()[1 ..],
+            false => &request.path(),
         };
         let file = self.directory.join(match pathutil::traversal_safe(path) {
             Ok(path) => path,
@@ -122,15 +122,15 @@ impl Capsule for FileCapsule {
         println!("file: {:?}", file);
 
         // Redirect the request to have ending '/' for directories, and no ending '/' for files
-        let (_name, ext) = pathutil::splitext(&request.path);
-        if ext.is_empty() && !request.path.ends_with("/") {
-            return Ok((format!("31 {}/\r\n", request.path), self.cache));
-        } else if !ext.is_empty() && request.path.ends_with("/") {
-            return Ok((format!("31 {}\r\n", &request.path[0 .. request.path.len() - 1]), self.cache));
+        let (_name, ext) = pathutil::splitext(&request.path());
+        if ext.is_empty() && !request.path().ends_with("/") {
+            return Ok((format!("31 {}/\r\n", request.path()), self.cache));
+        } else if !ext.is_empty() && request.path().ends_with("/") {
+            return Ok((format!("31 {}\r\n", &request.path()[0 .. request.path().len() - 1]), self.cache));
         }
 
 
-        let (response, meta, body) = match self.read_file(&file, &request.path).await {
+        let (response, meta, body) = match self.read_file(&file, &request.path()).await {
             Ok((meta, response)) => (20, meta, Some(response)),
             Err(err) => {
                 match err.kind() {

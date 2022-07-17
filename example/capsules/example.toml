@@ -1,8 +1,6 @@
-name = "Example"
-domain = "localhost"
-rules = []
+certificate = "certs/server.crt"
+certificate_key = "certs/server.key"
+domain_names = ["localhost"]
 
-[files]
-directory = "dist"
-extensions = []
-serve_folders = true
+[[application]]
+file_root = "dist/dist"

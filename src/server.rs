@@ -74,7 +74,7 @@ pub async fn serve(listen: &str, settings: &settings::Settings, certs: Vec<SniCe
             let header = str::from_utf8(&buf[0 .. n])?;
 
             // Parse the request
-            let request = gemini::Request::parse(header)?;
+            let request = gemini::Request::new(header)?;
 
             let responses_changer = responses.lock().await;
             // Check if there is a cache available for this request
@@ -82,12 +82,12 @@ pub async fn serve(listen: &str, settings: &settings::Settings, certs: Vec<SniCe
                 // Print out the response to console
                 if let Some((header, _body)) = response.split_once("\r\n") {
                     if let Some((code, _meta)) = header.split_once(" ") {
-                        println!("Cache {}{} [{}]", request.domain, request.path, code);
+                        println!("Cache {}{} [{}]", request.domain(), request.path(), code);
                     } else {
-                        println!("Cache {}{} [{}]", request.domain, request.path, header);
+                        println!("Cache {}{} [{}]", request.domain(), request.path(), header);
                     }
                 } else {
-                    eprintln!("Cache {}{}: Invalid Response Header\n{}", request.domain, request.path, response);
+                    eprintln!("Cache {}{}: Invalid Response Header\n{}", request.domain(), request.path(), response);
                     stream.write("42 Invalid Response Generated\r\n".as_bytes()).await?;
                     stream.shutdown().await?;
 
@@ -102,10 +102,10 @@ pub async fn serve(listen: &str, settings: &settings::Settings, certs: Vec<SniCe
 
             // Process the request
             for capsule in caps {
-                if !capsule.get_capsule().test(&request.domain, &request.path) {
+                if !capsule.get_capsule().test(&request.domain(), &request.path()) {
                     continue;
                 }
-                if !capsule.test(&request.domain, &request.path) {
+                if !capsule.test(&request.domain(), &request.path()) {
                     continue;
                 }
                 let (response, cache_time) = match capsule.serve(&request).await {
@@ -119,12 +119,12 @@ pub async fn serve(listen: &str, settings: &settings::Settings, certs: Vec<SniCe
                 };
                 if let Some((header, _body)) = response.split_once("\r\n") {
                     if let Some((code, _meta)) = header.split_once(" ") {
-                        println!("{} {}{} [{}]", capsule.get_capsule().name, request.domain, request.path, code);
+                        println!("{} {}{} [{}]", capsule.get_capsule().name, request.domain(), request.path(), code);
                     } else {
-                        println!("{} {}{} [{}]", capsule.get_capsule().name, request.domain, request.path, header);
+                        println!("{} {}{} [{}]", capsule.get_capsule().name, request.domain(), request.path(), header);
                     }
                 } else {
-                    eprintln!("{} {}{}: Invalid Response Header\n{}", capsule.get_capsule().name, request.domain, request.path, response);
+                    eprintln!("{} {}{}: Invalid Response Header\n{}", capsule.get_capsule().name, request.domain(), request.path(), response);
                     stream.write("42 Invalid Response Generated\r\n".as_bytes()).await?;
                     stream.shutdown().await?;
 

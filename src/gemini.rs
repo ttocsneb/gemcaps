@@ -1,142 +1,144 @@
-use std::{fmt::Debug, io};
+use std::{ops::Range, fmt::Display};
 
-fn parse_query(request: &str) -> String {
-    let query = String::from(request);
-    match query.find("\r\n") {
-        Some(n) => {
-            String::from(&query[0 .. n])
-        },
-        None => {
-            match query.find("\n") {
-                Some(n) => {
-                    String::from(&query[0 .. n])
-                }
-                None => {
-                    query
-                }
-            }
-        },
-    }
-}
+use regex::Regex;
+use lazy_static::lazy_static;
 
-fn parse_path(request: &str) -> (String, String) {
-    let path = String::from(request);
-    match path.find("?") {
-        Some(n) => {
-            (String::from(&path[0 .. n]), parse_query(&path[n ..]))
-        }
-        None => {
-            (parse_query(request), String::from(""))
-        }
-    }
-}
+use crate::error::GemcapsError;
 
-fn parse_domain(request: &str) -> (String, String, String) {
-    let domain = String::from(request);
-    match domain.find("/") {
-        Some(n) => {
-            let (path, query) = parse_path(&domain[n ..]);
-            (String::from(&domain[0 .. n]), path, query)
-        }
-        None => {
-            match domain.find("?") {
-                Some(n) => {
-                    let query = parse_query(&domain[n ..]);
-                    (String::from(&domain[0 .. n]), String::from(""), query)
-                },
-                None => {
-                    (parse_query(&domain), String::from(""), String::from(""))
-                }
-            }
-        }
-    }
-}
-
-fn parse_request(request: &str) -> io::Result<(String, String, String, String)> {
-    let protocol = String::from(request);
-    match request.find("://") {
-        Some(n) => {
-            let (domain, path, query) = parse_domain(&protocol[n + 3 ..]);
-            Ok((String::from(&protocol[0 .. n]), domain, path, query))
-        },
-        None => {
-            Err(io::Error::new(io::ErrorKind::InvalidData, ""))
-        }
-    }
-}
-
-
-#[derive(Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct Request {
-    pub protocol: String,
-    pub domain: String,
-    pub path: String,
-    pub query: String,
+    uri: String,
+    protocol: Range<usize>,
+    domain: Range<usize>,
+    port: Range<usize>,
+    path: Range<usize>,
+    query: Range<usize>,
 }
-
 
 impl Request {
-    pub fn parse(request: &str) -> io::Result<Self> {
-        let (protocol, domain, path, query) = parse_request(request)?;
-        Ok(Request { 
-            protocol,
-            domain, 
-            path, 
-            query,
-        })
+    pub fn new(uri: impl Into<String>) -> Result<Self, GemcapsError> {
+        lazy_static! {
+            // 1: protocol
+            // 2: domain
+            // 3: port
+            // 4: path
+            // 5: query
+            static ref PARSER: Regex = Regex::new(
+                r"([^:]+)://([^:/?\r\n]+)(:\d+|)([^?\r\n]*)(\?[^\r\n]*|)"
+            ).unwrap();
+        }
+        let uri = uri.into();
+
+        let captures = PARSER.captures(&uri).ok_or_else(
+            || GemcapsError::new("Invalid request URI")
+        )?;
+
+        let protocol = captures.get(1).map_or(0..0, |c| c.range());
+        let domain = captures.get(2).map_or(0..0, |c| c.range());
+        let path = captures.get(4).map_or(0..0, |c| c.range());
+    
+        let mut port = captures.get(3).map_or(0..0, |c| c.range());
+        port.next();
+        let port = port;
+
+        let mut query = captures.get(5).map_or(0..0, |c| c.range());
+        query.next();
+        let query = query;
+        Ok(Self { uri, protocol, domain, path, port, query })
+    }
+
+    #[inline]
+    pub fn protocol<'t>(&'t self) -> &'t str {
+        &self.uri[self.protocol.to_owned()]
+    }
+
+    #[inline]
+    pub fn domain<'t>(&'t self) -> &'t str {
+        &self.uri[self.domain.to_owned()]
+    }
+
+    #[inline]
+    pub fn port<'t>(&'t self) -> &'t str {
+        &self.uri[self.port.to_owned()]
+    }
+
+    #[inline]
+    pub fn path<'t>(&'t self) -> &'t str {
+        &self.uri[self.path.to_owned()]
+    }
+    
+    #[inline]
+    pub fn query<'t>(&'t self) -> &'t str {
+        &self.uri[self.query.to_owned()]
+    }
+
+    #[inline]
+    pub fn uri<'t>(&'t self) -> &'t str {
+        &self.uri[self.protocol.start..self.query.end]
     }
 }
 
-impl Debug for Request {
+impl TryFrom<String> for Request {
+    type Error = GemcapsError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+
+impl Display for Request {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!("{}://{}{}{}", self.protocol, self.domain, self.path, self.query))?;
-        Ok(())
+        f.write_str(self.uri())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::gemini;
+    use super::*;
 
     #[test]
     fn test_request() {
-        let req = gemini::Request::parse("gemini://localhost/?asdf\r\n").unwrap();
-        assert_eq!(req.protocol, "gemini");
-        assert_eq!(req.domain, "localhost");
-        assert_eq!(req.path, "/");
-        assert_eq!(req.query, "?asdf");
+        let req = Request::new("gemini://localhost:1970/foo/?asdf\r\n").unwrap();
+        assert_eq!(req.protocol(), "gemini");
+        assert_eq!(req.domain(), "localhost");
+        assert_eq!(req.port(), "1970");
+        assert_eq!(req.path(), "/foo/");
+        assert_eq!(req.query(), "asdf");
     }
 
     #[test]
     fn test_request_no_query() {
-        let req = gemini::Request::parse("gemini://localhost/\r\n").unwrap();
-        assert_eq!(req.protocol, "gemini");
-        assert_eq!(req.domain, "localhost");
-        assert_eq!(req.path, "/");
-        assert_eq!(req.query, "");
+        let req = Request::new("gemini://localhost/\r\n").unwrap();
+        assert_eq!(req.protocol(), "gemini");
+        assert_eq!(req.domain(), "localhost");
+        assert_eq!(req.port(), "");
+        assert_eq!(req.path(), "/");
+        assert_eq!(req.query(), "");
     }
 
     #[test]
     fn test_request_no_path() {
-        let req = gemini::Request::parse("gemini://localhost?asdf\r\n").unwrap();
-        assert_eq!(req.protocol, "gemini");
-        assert_eq!(req.domain, "localhost");
-        assert_eq!(req.path, "");
-        assert_eq!(req.query, "?asdf");
+        let req = Request::new("gemini://localhost?asdf\r\n").unwrap();
+        assert_eq!(req.protocol(), "gemini");
+        assert_eq!(req.domain(), "localhost");
+        assert_eq!(req.port(), "");
+        assert_eq!(req.path(), "");
+        assert_eq!(req.query(), "asdf");
     }
 
     #[test]
     fn test_request_domain_only() {
-        let req = gemini::Request::parse("gemini://localhost\r\n").unwrap();
-        assert_eq!(req.protocol, "gemini");
-        assert_eq!(req.domain, "localhost");
-        assert_eq!(req.path, "");
-        assert_eq!(req.query, "");
+        let req = Request::new("gemini://localhost\r\n").unwrap();
+        assert_eq!(req.protocol(), "gemini");
+        assert_eq!(req.domain(), "localhost");
+        assert_eq!(req.port(), "");
+        assert_eq!(req.path(), "");
+        assert_eq!(req.query(), "");
     }
 
     #[test]
     fn test_request_bad() {
-        gemini::Request::parse("gemini:/localhost\r\n").expect_err("Should have an error");
+        Request::new("gemini:/localhost\r\n").expect_err("Should have an error");
     }
 
 }
