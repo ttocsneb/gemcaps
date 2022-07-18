@@ -4,7 +4,7 @@ use std::{error::Error, fmt::Display, io, string::FromUtf8Error};
 #[derive(Debug)]
 pub enum GemcapsError {
     Message(String),
-    Embedded(Box<dyn std::error::Error>),
+    Embedded(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl Error for GemcapsError {}
@@ -25,18 +25,18 @@ impl GemcapsError {
     }
 
     #[inline]
-    pub fn err(err: impl std::error::Error + 'static) -> Self {
+    pub fn err(err: impl std::error::Error + Send + Sync + 'static) -> Self {
         Self::Embedded(Box::new(err))
     }
 
     #[inline]
-    pub fn err_box(err: Box<dyn std::error::Error>) -> Self {
+    pub fn err_box(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
         Self::Embedded(err)
     }
 }
 
-impl From<Box<dyn std::error::Error>> for GemcapsError {
-    fn from(err: Box<dyn std::error::Error>) -> Self {
+impl From<Box<dyn std::error::Error + Send + Sync>> for GemcapsError {
+    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
         Self::err_box(err)
     }
 }

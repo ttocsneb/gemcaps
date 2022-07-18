@@ -3,13 +3,12 @@ use config::ConfItem;
 use futures::future;
 
 use clap::Parser;
+use log::Logger;
 use runner::capsule_main;
 use tokio::{fs, io::AsyncReadExt};
 
 use crate::{error::GemcapsError, config::{Configuration, CapsuleConf}, pem::Cert};
 
-mod settings;
-mod server;
 mod capsule;
 mod pathutil;
 mod cache;
@@ -21,23 +20,37 @@ mod tls;
 mod glob;
 mod pem;
 mod gemini;
+mod log;
 
 /// 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, Default)]
 #[clap(author, version, about, long_about = None)]
-struct Args {
+pub struct Args {
     /// Configuration folder, this is where you can place all capsule configs
     #[clap(short, long, default_value = ".")]
     config: String,
     /// Logs folder, default location for logging output
-    #[clap(short, long, default_value = "./logs/")]
-    logs: String,
+    #[clap(short, long)]
+    logs: Option<String>,
+}
+
+pub static mut ARGS: Option<Args> = None;
+
+pub fn args() -> &'static Args {
+    if let Some(args) = unsafe { &ARGS } {
+        args
+    } else {
+        let args = Args::parse();
+        unsafe { ARGS = Some(args); }
+        unsafe { ARGS.as_ref() }.unwrap()
+    }
 }
 
 async fn runner() -> Result<(), GemcapsError> {
-    let args = Args::parse();
+    let args = args();
 
     let config = Path::new(&args.config);
+    let logs = args.logs.as_ref().map(|logs| Path::new(logs)).or(Some(config)).unwrap();
     let capsules = config.join("capsules");
 
     let mut read_dir = match fs::read_dir(&capsules).await {
@@ -67,7 +80,12 @@ async fn runner() -> Result<(), GemcapsError> {
                 format!("Invalid configuration in {}: {}", name, err)
             )
         )?;
-        conf.name = name;
+        conf.name = match name.rfind(".") {
+            Some(pos) => {
+                name[0..pos].to_owned()
+            },
+            None => name
+        };
 
         if let Some(certificate) = conf.certificate.as_mut() {
             let cert = mem::take(certificate);
@@ -93,14 +111,32 @@ async fn runner() -> Result<(), GemcapsError> {
                     app.cgi_root = config.join(&app.cgi_root);
                 }
             }
+            if let Some(error_log) = item.error_log_mut() {
+                if error_log.is_relative() {
+                    drop(mem::replace(error_log, logs.join(&error_log)));
+                }
+            }
+            if let Some(access_log) = item.access_log_mut() {
+                if access_log.is_relative() {
+                    drop(mem::replace(access_log, logs.join(&access_log)));
+                }
+            }
         }
 
+        if let Some(error_log) = conf.error_log.as_mut() {
+            if error_log.is_relative() {
+                drop(mem::replace(error_log, logs.join(&error_log)));
+            }
+        }
+
+        let mut logger = Logger::builder(&conf.name)
+            .set_error(conf.error_log.clone())
+            .open().await?;
         futures.push(async move {
-            let name = conf.name.to_owned();
-            match capsule_main(conf).await {
+            match capsule_main(conf, &mut logger).await {
                 Ok(_) => {},
                 Err(err) => {
-                    eprintln!("[{}]: {}", name, err);
+                    logger.error(err.to_string()).await;
                 }
             }
         });
@@ -119,7 +155,8 @@ async fn main() {
     match runner().await {
         Ok(_) => {},
         Err(err) => {
-            eprintln!("{}", err);
+            let mut logger = Logger::builder("main").open().await.unwrap();
+            logger.error(err.to_string()).await;
         }
     }
     // let sett = match settings::load_settings(&config_dir).await {

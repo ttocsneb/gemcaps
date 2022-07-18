@@ -2,79 +2,29 @@ use std::mem;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tokio::io::{AsyncWriteExt, AsyncReadExt};
-use tokio::join;
-use tokio::net::tcp::{ReadHalf, WriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 
+use crate::capsule::{redirect, CapsuleResponse, file};
 use crate::config::ConfItem;
 use crate::gemini::Request;
+use crate::log::Logger;
 use crate::pem::Cert;
 use crate::tls::connection::Connection;
 use crate::{config::CapsuleConf, error::GemcapsError};
 use crate::tls::acceptor::Acceptor;
 
 
-async fn handle_request(conf: &CapsuleConf, mut stream: TcpStream, addr: SocketAddr) -> Result<(), GemcapsError> {
-
-    let log_msg = |msg: &str| {
-        println!("[{}] {}: {}", conf.name, addr.ip(), msg);
-    };
-    let err_msg = |msg: &str| {
-        eprintln!("[{}] {}: {}", conf.name, addr.ip(), msg);
-    };
+async fn handle_request(conf: &CapsuleConf, mut stream: TcpStream, _addr: SocketAddr, logger: &mut Logger) -> Result<(), GemcapsError> {
 
     let mut acceptor = Acceptor::new()?;
     let accepted = acceptor.accept(&mut stream).await?;
 
     let sni = accepted.client_hello().server_name().or(Some("")).unwrap().to_owned();
 
-    let mut applications = vec![];
-    for conf in &conf.items {
-        for name in conf.domain_names() {
-            if name.matches(&sni) {
-                applications.push(conf);
-                break;
-            }
-        }
-    }
-    
-    if let Some(ConfItem::Redirect(application)) = applications.first() {
-        let mut redirect = TcpStream::connect(&application.redirect).await?;
-        redirect.write_all(&acceptor.buffer.buf).await?;
-
-        let (redirect_read, redirect_write) = redirect.split();
-        let (stream_read, stream_write) = stream.split();
-
-        async fn forward_stream<'a>(mut rd: ReadHalf<'a>, mut wd: WriteHalf<'a>) -> Result<(), GemcapsError> {
-            let mut buf = vec![];
-            loop {
-                if rd.read_buf(&mut buf).await? == 0 {
-                    return Ok(());
-                };
-                wd.write_all(&buf).await?;
-                buf.clear();
-            }
-        }
-
-        join!(async move {
-            match forward_stream(redirect_read, stream_write).await {
-                Ok(_) => {},
-                Err(err) => {
-                    err_msg(&format!("{}", err));
-                }
-            }
-        }, async move {
-            match forward_stream(stream_read, redirect_write).await {
-                Ok(_) => {},
-                Err(err) => {
-                    err_msg(&format!("{}", err));
-                }
-            }
-        });
-        log_msg(&format!("Redirected to {}", &application.redirect));
+    if redirect::redirect(&conf, &sni, &acceptor.buffer.buf, &mut stream, &logger).await? {
         return Ok(());
     }
+    drop(acceptor);
 
     let server_conf = conf.server_conf.as_ref().ok_or_else(
         || GemcapsError::new("A certificate is required to communicate")
@@ -83,44 +33,73 @@ async fn handle_request(conf: &CapsuleConf, mut stream: TcpStream, addr: SocketA
     let mut connection = Connection::new(connection, stream);
     connection.complete_io().await?;
 
-    if applications.len() == 0 {
-        connection.send("53 Requested domain not served here\r\n").await?;
-        return Err(GemcapsError::new("No application is willing to process the request"));
-    }
-
     let request = connection.receive(1024).await?;
     let request = Request::new(request).ok();
     let request = match request {
         Some(val) => val,
         None => {
-            connection.send("59 Invalid request format\r\n").await?;
+            connection.send(CapsuleResponse::bad_request("Invalid request format").to_string()).await?;
             return Err(GemcapsError::new("Invalid request format"));
         }
     };
 
-    for application in applications {
-        match application {
-            ConfItem::Redirect(_) => {
-                log_msg("Warning, redirects must be the first option available");
-            },
-            ConfItem::Proxy(_application) => {
-                log_msg("Trying Proxy");
-            },
-            ConfItem::CGI(_application) => {
-                log_msg("Trying CGI");
-            },
-            ConfItem::File(_application) => {
-                log_msg("Trying File");
-            },
+    let domain = request.domain();
+
+
+    let mut applications = vec![];
+    for conf in &conf.items {
+        for name in conf.domain_names() {
+            if name.matches(&domain) {
+                applications.push(conf);
+                break;
+            }
         }
     }
 
-    connection.send("51 Resource not found\r\n").await?;
+    if applications.len() == 0 {
+        connection.send(CapsuleResponse::not_found("Requested application not served here").to_string()).await?;
+        return Err(GemcapsError::new("No application is willing to process the request"));
+    }
+
+    for application in applications {
+        let mut logger = logger.as_replace_logs(application.access_log().map(|v| v.clone()), application.error_log().map(|v| v.clone())).await?;
+        let response = match application {
+            ConfItem::Redirect(_) => {
+                logger.error("Redirects must be the first option available").await;
+                Ok(None)
+            },
+            ConfItem::Proxy(_application) => {
+                logger.info("Proxy not yet implemented");
+                Ok(None)
+            },
+            ConfItem::CGI(_application) => {
+                logger.info("CGI not yet implemented");
+                Ok(None)
+            },
+            ConfItem::File(application) => {
+                file::process_file_request(&request, application, &mut logger).await
+            },
+        };
+        match response {
+            Ok(Some(response)) => {
+                connection.send(response.to_string()).await?;
+                logger.access(response.info()).await;
+                return Ok(());
+            },
+            Err(err) => {
+                connection.send(CapsuleResponse::failure_perm("Internal server error").to_string()).await?;
+                logger.error(err.to_string()).await;
+            },
+            _ => {},
+        }
+    }
+
+    connection.send(CapsuleResponse::not_found("Resource not found").to_string()).await?;
     Err(GemcapsError::new("No resource avalable"))
 }
 
 
-pub async fn capsule_main(mut conf: CapsuleConf) -> Result<(), GemcapsError> {
+pub async fn capsule_main(mut conf: CapsuleConf, logger: &mut Logger) -> Result<(), GemcapsError> {
     let listener = TcpListener::bind(&conf.listen).await?;
     
     let cert = mem::replace(&mut conf.certificate, None);
@@ -148,19 +127,19 @@ pub async fn capsule_main(mut conf: CapsuleConf) -> Result<(), GemcapsError> {
         }
     }
 
-    println!("[{}]: Listening on {}", conf.name, conf.listen);
+    logger.info(format!("Listening on {}", conf.listen));
 
     let conf = Arc::new(conf);
     loop {
         let (stream, addr) = listener.accept().await?;
         
         let conf = conf.to_owned();
+        let mut logger = logger.as_option(format!("{}:{}", addr.ip(), addr.port()));
         tokio::spawn(async move {
-            let ip = addr.ip();
-            match handle_request(&conf, stream, addr).await {
+            match handle_request(&conf, stream, addr, &mut logger).await {
                 Ok(()) => {},
                 Err(err) => {
-                    eprintln!("[{}] {}: {}", conf.name, ip, err);
+                    logger.error(err.to_string()).await;
                 },
             }
         });

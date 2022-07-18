@@ -1,6 +1,8 @@
 certificate = "certs/server.crt"
 certificate_key = "certs/server.key"
+access_log = "example.log"
+error_log = "example.log"
 domain_names = ["localhost"]
 
 [[application]]
-file_root = "dist/dist"
+file_root = "dist/"

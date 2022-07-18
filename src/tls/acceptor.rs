@@ -22,13 +22,19 @@ impl Acceptor {
         self.acceptor.read_tls(&mut self.buffer)
     }
 
-    pub async fn accept(&mut self, rd: &mut TcpStream) -> Result<Accepted, Box<dyn std::error::Error>> {
+    pub async fn accept(&mut self, rd: &mut TcpStream) -> Result<Accepted, io::Error> {
         loop {
             if self.acceptor.wants_read() {
                 self.read_tls(rd).await?;
             }
-            if let Some(accepted) = self.acceptor.accept()? {
-                return Ok(accepted);
+            match self.acceptor.accept() {
+                Ok(Some(accepted)) => {
+                    return Ok(accepted);
+                },
+                Ok(None) => {},
+                Err(err) => {
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, err));
+                }
             }
         }
     }

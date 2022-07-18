@@ -3,6 +3,8 @@ use std::{collections::HashMap, io, path::{Component, Path, PathBuf}};
 use regex::Regex;
 use lazy_static::lazy_static;
 
+use crate::args;
+
 /// Join two paths together.
 /// 
 /// This will make sure that there are no duplicate '/' where the two paths are
@@ -213,8 +215,9 @@ pub fn expand(path: &str) -> io::Result<String> {
 }
 
 fn load_mimetypes() -> io::Result<HashMap<String, String>> {
-    let config_dir = std::env::args().nth(1).unwrap_or_else(|| String::from("example"));
-    let mimetypes = std::fs::read_to_string(join(&config_dir, "mime-types.toml"))?;
+    let args = args();
+
+    let mimetypes = std::fs::read_to_string(join(&args.config, "mime-types.toml"))?;
     Ok(toml::from_str(&mimetypes)?)
 }
 

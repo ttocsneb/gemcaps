@@ -75,6 +75,24 @@ impl ConfItem {
     pub fn access_log(&self) -> Option<&PathBuf> {
         shared_item!(self.access_log).as_ref()
     }
+
+    pub fn access_log_mut(&mut self) -> Option<&mut PathBuf> {
+        match self {
+            ConfItem::Redirect(item) => item.access_log.as_mut(),
+            ConfItem::Proxy(item) => item.access_log.as_mut(),
+            ConfItem::CGI(item) => item.access_log.as_mut(),
+            ConfItem::File(item) => item.access_log.as_mut(),
+        }
+    }
+
+    pub fn error_log_mut(&mut self) -> Option<&mut PathBuf> {
+        match self {
+            ConfItem::Redirect(item) => item.error_log.as_mut(),
+            ConfItem::Proxy(item) => item.error_log.as_mut(),
+            ConfItem::CGI(item) => item.error_log.as_mut(),
+            ConfItem::File(item) => item.error_log.as_mut(),
+        }
+    }
 }
 
 
@@ -86,6 +104,7 @@ pub struct CapsuleConf {
     pub pid_file: Option<String>,
     pub worker_processes: Option<u8>,
     pub items: Vec<ConfItem>,
+    pub error_log: Option<PathBuf>,
     pub name: String,
 }
 
@@ -325,7 +344,7 @@ impl TryFrom<Configuration> for CapsuleConf {
 
         let defaults = ConfigurationItem {
             domain_names: value.domain_names,
-            error_log: value.error_log,
+            error_log: value.error_log.clone(),
             access_log: value.access_log,
             rule: value.rule, 
             substitution: value.substitution,
@@ -355,6 +374,9 @@ impl TryFrom<Configuration> for CapsuleConf {
             certificate,
             server_conf: None,
             listen: value.listen.or(Some("0.0.0.0:1965".into())).unwrap(),
+            error_log: value.error_log.map(
+                |val| PathBuf::from(val)
+            ),
             name: String::default(),
         })
     }
