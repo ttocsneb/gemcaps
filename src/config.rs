@@ -1,4 +1,4 @@
-use std::{borrow::Cow, path::PathBuf, fmt::Debug, sync::Arc};
+use std::{path::PathBuf, fmt::Debug, sync::Arc};
 
 use regex::Regex;
 use rustls::ServerConfig;
@@ -21,7 +21,6 @@ pub struct ProxyConf {
     pub error_log: Option<PathBuf>,
     pub access_log: Option<PathBuf>,
     pub rule: Option<Regex>,
-    pub substitution: Option<Substitution>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,7 +30,6 @@ pub struct CGIConf {
     pub error_log: Option<PathBuf>,
     pub access_log: Option<PathBuf>,
     pub rule: Option<Regex>,
-    pub substitution: Option<Substitution>,
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +39,8 @@ pub struct FileConf {
     pub error_log: Option<PathBuf>,
     pub access_log: Option<PathBuf>,
     pub rule: Option<Regex>,
-    pub substitution: Option<Substitution>,
+    pub send_folders: bool,
+    pub indexes: Vec<Glob>,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +62,7 @@ macro_rules! shared_item {
     };
 }
 
+#[allow(dead_code)]
 impl ConfItem {
     pub fn domain_names(&self) -> &Vec<Glob> {
         shared_item!(self.domain_names)
@@ -93,6 +93,15 @@ impl ConfItem {
             ConfItem::File(item) => item.error_log.as_mut(),
         }
     }
+
+    pub fn rule(&self) -> Option<&Regex> {
+        match self {
+            ConfItem::Redirect(_) => None,
+            ConfItem::Proxy(item) => item.rule.as_ref(),
+            ConfItem::CGI(item) => item.rule.as_ref(),
+            ConfItem::File(item) => item.rule.as_ref(),
+        }
+    }
 }
 
 
@@ -101,8 +110,6 @@ pub struct CapsuleConf {
     pub listen: String,
     pub certificate: Option<Cert>,
     pub server_conf: Option<Arc<ServerConfig>>,
-    pub pid_file: Option<String>,
-    pub worker_processes: Option<u8>,
     pub items: Vec<ConfItem>,
     pub error_log: Option<PathBuf>,
     pub name: String,
@@ -112,47 +119,11 @@ impl Debug for CapsuleConf {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CapsuleConf")
             .field("listen", &self.listen)
-            .field("pid_file", &self.pid_file)
-            .field("worker_processes", &self.worker_processes)
             .field("items", &self.items)
             .field("name", &self.name)
             .finish()
     }
 }
-
-#[derive(Debug, Clone)]
-pub struct Substitution {
-    pub regex: Regex,
-    pub replace: String,
-}
-
-impl Substitution {
-    pub fn new(s: impl AsRef<str>) -> Result<Self, GemcapsError> {
-        let s = s.as_ref();
-        let mut chars = s.chars();
-        let first = chars.next().ok_or(
-            GemcapsError::new("Expected a string")
-        )?;
-        let segments: Vec<&str> = chars.as_str().split(first).collect();
-        if segments.len() > 2 || segments.len() <= 1 {
-            return Err(GemcapsError::new("Expected a single separator e.g. `#foo#bar`"))
-        }
-
-        Ok(Self {
-            regex: Regex::new(segments[0])?,
-            replace: segments[1].to_string(),
-        })
-    }
-
-    pub fn replace<'t>(&self, s: &'t str) -> Cow<'t, str> {
-        self.regex.replace(s, &self.replace)
-    }
-
-    pub fn replace_all<'t>(&self, s: &'t str) -> Cow<'t, str> {
-        self.regex.replace_all(s, &self.replace)
-    }
-}
-
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ConfigurationItem {
@@ -160,7 +131,8 @@ pub struct ConfigurationItem {
     error_log: Option<String>,
     access_log: Option<String>,
     rule: Option<String>,
-    substitution: Option<String>,
+    send_folders: Option<bool>,
+    indexes: Option<Vec<String>>,
 
     redirect: Option<String>,
     proxy: Option<String>,
@@ -183,11 +155,6 @@ impl ConfigurationItem {
         if let Some(rule) = &defaults.rule {
             if self.rule == None {
                 self.rule = Some(rule.to_owned());
-            }
-        }
-        if let Some(substitution) = &defaults.substitution {
-            if self.substitution == None {
-                self.substitution = Some(substitution.to_owned());
             }
         }
         if let Some(domain_names) = &defaults.domain_names {
@@ -232,7 +199,6 @@ impl TryFrom<ConfigurationItem> for RedirectConf {
         assert_none(value.file_root, "file_root")?;
         assert_none(value.proxy, "proxy")?;
         assert_none(value.rule, "rule")?;
-        assert_none(value.substitution, "substitution")?;
         Ok(Self {
             domain_names: value.domain_names.ok_or(GemcapsError::new("Expected domain_names"))?
                 .into_iter().map(|v| Glob::new(v)).collect(),
@@ -260,10 +226,6 @@ impl TryFrom<ConfigurationItem> for ProxyConf {
                 Some(rule) => Some(Regex::new(&rule)?),
                 None => None,
             },
-            substitution: match value.substitution {
-                Some(substitution) => Some(Substitution::new(substitution)?),
-                None => None,
-            } 
         })
     }
 }
@@ -285,10 +247,6 @@ impl TryFrom<ConfigurationItem> for CGIConf {
                 Some(rule) => Some(Regex::new(&rule)?),
                 None => None,
             },
-            substitution: match value.substitution {
-                Some(substitution) => Some(Substitution::new(substitution)?),
-                None => None,
-            } 
         })
     }
 }
@@ -310,10 +268,10 @@ impl TryFrom<ConfigurationItem> for FileConf {
                 Some(rule) => Some(Regex::new(&rule)?),
                 None => None,
             },
-            substitution: match value.substitution {
-                Some(substitution) => Some(Substitution::new(substitution)?),
-                None => None,
-            } 
+            send_folders: value.send_folders.or(Some(false)).unwrap(),
+            indexes: value.indexes.map(|indexes|
+                indexes.into_iter().map(|index| Glob::new(index)).collect()
+            ).or(Some(vec![])).unwrap(),
         })
     }
 }
@@ -324,13 +282,10 @@ pub struct Configuration {
     listen: Option<String>,
     certificate: Option<String>,
     certificate_key: Option<String>,
-    pid_file: Option<String>,
-    worker_processes: Option<u8>,
 
     error_log: Option<String>,
     access_log: Option<String>,
     rule: Option<String>,
-    substitution: Option<String>,
     domain_names: Option<Vec<String>>,
 
     application: Vec<ConfigurationItem>,
@@ -347,8 +302,7 @@ impl TryFrom<Configuration> for CapsuleConf {
             error_log: value.error_log.clone(),
             access_log: value.access_log,
             rule: value.rule, 
-            substitution: value.substitution,
-            redirect: None, proxy: None, cgi_root: None, file_root: None ,
+            ..Default::default()
         };
 
         for mut item in value.application {
@@ -369,8 +323,6 @@ impl TryFrom<Configuration> for CapsuleConf {
 
         Ok(Self {
             items,
-            worker_processes: value.worker_processes,
-            pid_file: value.pid_file,
             certificate,
             server_conf: None,
             listen: value.listen.or(Some("0.0.0.0:1965".into())).unwrap(),

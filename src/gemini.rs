@@ -15,6 +15,7 @@ pub struct Request {
     query: Range<usize>,
 }
 
+#[allow(dead_code)]
 impl Request {
     pub fn new(uri: impl Into<String>) -> Result<Self, GemcapsError> {
         lazy_static! {

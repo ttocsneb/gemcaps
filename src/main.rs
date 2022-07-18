@@ -6,13 +6,12 @@ use clap::Parser;
 use log::Logger;
 use runner::capsule_main;
 use tokio::{fs, io::AsyncReadExt};
+use lazy_static::lazy_static;
 
 use crate::{error::GemcapsError, config::{Configuration, CapsuleConf}, pem::Cert};
 
 mod capsule;
 mod pathutil;
-mod cache;
-
 mod config;
 mod error;
 mod runner;
@@ -23,7 +22,7 @@ mod gemini;
 mod log;
 
 /// 
-#[derive(Parser, Debug, Default)]
+#[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Configuration folder, this is where you can place all capsule configs
@@ -34,16 +33,11 @@ pub struct Args {
     logs: Option<String>,
 }
 
-pub static mut ARGS: Option<Args> = None;
-
 pub fn args() -> &'static Args {
-    if let Some(args) = unsafe { &ARGS } {
-        args
-    } else {
-        let args = Args::parse();
-        unsafe { ARGS = Some(args); }
-        unsafe { ARGS.as_ref() }.unwrap()
+    lazy_static! {
+        static ref ARGS: Args = Args::parse();
     }
+    &ARGS
 }
 
 async fn runner() -> Result<(), GemcapsError> {
@@ -129,9 +123,10 @@ async fn runner() -> Result<(), GemcapsError> {
             }
         }
 
-        let mut logger = Logger::builder(&conf.name)
-            .set_error(conf.error_log.clone())
-            .open().await?;
+        let mut logger = Logger::new(&conf.name);
+        if let Some(error_log) = &conf.error_log {
+            logger.set_error(error_log).await?;
+        }
         futures.push(async move {
             match capsule_main(conf, &mut logger).await {
                 Ok(_) => {},
@@ -155,7 +150,7 @@ async fn main() {
     match runner().await {
         Ok(_) => {},
         Err(err) => {
-            let mut logger = Logger::builder("main").open().await.unwrap();
+            let mut logger = Logger::new("main");
             logger.error(err.to_string()).await;
         }
     }

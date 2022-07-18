@@ -5,6 +5,7 @@ pub struct Buffer {
     index: usize,
 }
 
+#[allow(dead_code)]
 impl Buffer {
     pub fn new() -> Self {
         Self { buf: Vec::new(), index: 0 }

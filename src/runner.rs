@@ -1,10 +1,10 @@
-use std::mem;
+use std::{mem, io};
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use tokio::net::{TcpListener, TcpStream};
 
-use crate::capsule::{redirect, CapsuleResponse, file};
+use crate::capsule::{redirect, GeminiResponse, file};
 use crate::config::ConfItem;
 use crate::gemini::Request;
 use crate::log::Logger;
@@ -38,10 +38,12 @@ async fn handle_request(conf: &CapsuleConf, mut stream: TcpStream, _addr: Socket
     let request = match request {
         Some(val) => val,
         None => {
-            connection.send(CapsuleResponse::bad_request("Invalid request format").to_string()).await?;
+            connection.send(GeminiResponse::bad_request("Invalid request format").to_string()).await?;
             return Err(GemcapsError::new("Invalid request format"));
         }
     };
+
+    logger.set_topic(format!("{}{}", request.domain(), request.path()));
 
     let domain = request.domain();
 
@@ -57,12 +59,21 @@ async fn handle_request(conf: &CapsuleConf, mut stream: TcpStream, _addr: Socket
     }
 
     if applications.len() == 0 {
-        connection.send(CapsuleResponse::not_found("Requested application not served here").to_string()).await?;
+        connection.send(GeminiResponse::not_found("Requested application not served here").to_string()).await?;
         return Err(GemcapsError::new("No application is willing to process the request"));
     }
 
+    let path = String::from_utf8_lossy(&urlencoding::decode_binary(request.path().as_bytes())).into_owned();
+
     for application in applications {
-        let mut logger = logger.as_replace_logs(application.access_log().map(|v| v.clone()), application.error_log().map(|v| v.clone())).await?;
+        let mut logger = logger.as_logs(application.access_log().map(|v| v.clone()), application.error_log().map(|v| v.clone())).await?;
+
+        if let Some(rule) = application.rule() {
+            if !rule.is_match(&path) {
+                continue;
+            }
+        }
+
         let response = match application {
             ConfItem::Redirect(_) => {
                 logger.error("Redirects must be the first option available").await;
@@ -86,15 +97,33 @@ async fn handle_request(conf: &CapsuleConf, mut stream: TcpStream, _addr: Socket
                 logger.access(response.info()).await;
                 return Ok(());
             },
-            Err(err) => {
-                connection.send(CapsuleResponse::failure_perm("Internal server error").to_string()).await?;
-                logger.error(err.to_string()).await;
+            Err(GemcapsError::Io(err)) => {
+                let response = match err.kind() {
+                    io::ErrorKind::PermissionDenied => {
+                        GeminiResponse::failure_perm("Permission denied")
+                    },
+                    io::ErrorKind::NotFound => {
+                        GeminiResponse::not_found("Resource not found")
+                    },
+                    _ => {
+                        logger.error(err.to_string()).await;
+                        GeminiResponse::cgi_error("Internal server error")
+                    }
+                };
+                connection.send(response.to_string()).await?;
+                logger.access(response.info()).await;
+                return Ok(());
             },
-            _ => {},
+            Err(err) => {
+                connection.send(GeminiResponse::cgi_error("Internal server error").to_string()).await?;
+                logger.error(err.to_string()).await;
+                return Ok(());
+            },
+            Ok(None) => {},
         }
     }
 
-    connection.send(CapsuleResponse::not_found("Resource not found").to_string()).await?;
+    connection.send(GeminiResponse::not_found("Resource not found").to_string()).await?;
     Err(GemcapsError::new("No resource avalable"))
 }
 
@@ -134,7 +163,7 @@ pub async fn capsule_main(mut conf: CapsuleConf, logger: &mut Logger) -> Result<
         let (stream, addr) = listener.accept().await?;
         
         let conf = conf.to_owned();
-        let mut logger = logger.as_option(format!("{}:{}", addr.ip(), addr.port()));
+        let mut logger = logger.as_group(format!("{}:{}", addr.ip(), addr.port()));
         tokio::spawn(async move {
             match handle_request(&conf, stream, addr, &mut logger).await {
                 Ok(()) => {},

@@ -1,203 +1,359 @@
-use serde::Deserialize;
-use toml::Value;
 use std::fmt::Display;
-use std::path::Path;
-use std::{io, sync::Arc};
-use tokio::fs;
-use async_trait::async_trait;
-use regex::Regex;
 
-use crate::gemini;
-use crate::pathutil;
-
-pub mod files;
 pub mod file;
 pub mod redirect;
 
+/// A Response wrapper to make creating responses easier.
+/// 
+/// # Example
+/// 
+/// ```
+/// let response = GeminiResponse::redirect_perm("/foo/bar");
+/// assert_eq!(response.to_string(), "31 /foo/bar\r\n");
+/// ```
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CapsuleResponse {
+pub enum GeminiResponse {
+    /// 10 INPUT
     Input { prompt: String },
+    /// 11 SENSITIVE INPUT
     InputSensitive { prompt: String },
+    /// 20 SUCCESS
     Success {
         meta: String,
         body: String,
     },
+    /// 30 TEMPORARY REDIRECT
     RedirectTemp { redirect: String },
+    /// 31 PERMANENT REDIRECT
     RedirectPerm { redirect: String },
+    /// 40 TEMPORARY FAILURE
     FailureTemp { message: String },
+    /// 41 SERVER UNAVAILABLE
     ServerUnavail { message: String },
+    /// 42 CGI ERROR
     CgiError { message: String },
+    /// 43 PROXY ERROR
     ProxyError { message: String },
+    /// 44 SLOW DOWN
     SlowDown { message: String },
+    /// 50 PERMANENT FAILURE
     FailurePerm { message: String },
+    /// 51 NOT FOUND
     NotFound { message: String },
+    /// 52 GONE
     Gone { message: String },
+    /// 53 PROXY REFUSED
     ProxyRefused { message: String },
+    /// 59 BAD REQUEST
     BadRequest { message: String },
+    /// 60 CERTIFICATE REQUIRED
     CertRequired { message: String },
+    /// 61 CERTIFICATE NOT AUTHORIZED
     CertNotAuthorized { message: String },
+    /// 62 CERTIFICATE NOT VALID
     CertInvalid { message: String },
 }
 
-impl CapsuleResponse {
+#[allow(dead_code)]
+impl GeminiResponse {
+    /// 10 INPUT
+    /// 
+    /// Status codes beginning with 1 are INPUT status codes, meaning:
+    /// 
+    /// The requested resource accepts a line of textual user input. The <META>
+    /// line is a prompt which should be displayed to the user. The same 
+    /// resource should then be requested again with the user's input included
+    /// as a query component. Queries are included in requests as per the usual
+    /// generic URL definition in RFC3986, i.e. separated from the path by a ?.
+    /// Reserved characters used in the user's input must be "percent-encoded"
+    /// as per RFC3986, and space characters should also be percent-encoded.
     pub fn input(prompt: impl Into<String>) -> Self {
         Self::Input { prompt: prompt.into() }
     }
 
+    /// 11 SENSITIVE INPUT
+    /// 
+    /// As per status code 10, but for use with sensitive input such as
+    /// passwords. Clients should present the prompt as per status code 10, but
+    /// the user's input should not be echoed to the screen to prevent it being
+    /// read by "shoulder surfers".
     pub fn input_sensitive(prompt: impl Into<String>) -> Self {
         Self::InputSensitive { prompt: prompt.into() }
     }
-    
+   
+    /// 20 SUCCESS
+    /// 
+    /// Status codes beginning with 2 are SUCCESS status codes, meaning:
+    /// 
+    /// The request was handled successfully and a response body will follow
+    /// the response header. The <META> line is a MIME media type which applies
+    /// to the response body.
     pub fn success(meta: impl Into<String>, body: impl Into<String>) -> Self {
         Self::Success { meta: meta.into(), body: body.into() }
     }
-    
+   
+    /// 30 TEMPORARY REDIRECT
+    /// 
+    /// Status codes beginning with 3 are REDIRECT status codes, meaning:
+    ///
+    /// The server is redirecting the client to a new location for the
+    /// requested resource. There is no response body. <META> is a new URL for
+    /// the requested resource. The URL may be absolute or relative. If
+    /// relative, it should be resolved against the URL used in the original
+    /// request. If the URL used in the original request contained a query
+    /// string, the client MUST NOT apply this string to the redirect URL,
+    /// instead using the redirect URL "as is". The redirect should be
+    /// considered temporary, i.e. clients should continue to request the
+    /// resource at the original address and should not perform convenience
+    /// actions like automatically updating bookmarks. There is no response
+    /// body.
     pub fn redirect_temp(redirect: impl Into<String>) -> Self {
         Self::RedirectTemp { redirect: redirect.into() }
     }
     
+    /// 31 PERMANENT REDIRECT
+    /// 
+    /// The requested resource should be consistently requested from the new
+    /// URL provided in future. Tools like search engine indexers or content
+    /// aggregators should update their configurations to avoid requesting the
+    /// old URL, and end-user clients may automatically update bookmarks, etc.
+    /// Note that clients which only pay attention to the initial digit of
+    /// status codes will treat this as a temporary redirect. They will still
+    /// end up at the right place, they just won't be able to make use of the
+    /// knowledge that this redirect is permanent, so they'll pay a small
+    /// performance penalty by having to follow the redirect each time.
     pub fn redirect_perm(redirect: impl Into<String>) -> Self {
         Self::RedirectPerm { redirect: redirect.into() }
     }
-    
+    /// 40 TEMPORARY FAILURE
+    /// 
+    /// Status codes beginning with 4 are TEMPORARY FAILURE status codes,
+    /// meaning:
+    ///
+    /// The request has failed. There is no response body. The nature of the
+    /// failure is temporary, i.e. an identical request MAY succeed in the
+    /// future. The contents of <META> may provide additional information on
+    /// the failure, and should be displayed to human users.
     pub fn failure_temp(message: impl Into<String>) -> Self {
         Self::FailureTemp { message: message.into() }
     }
 
+    /// 41 SERVER UNAVAILABLE
+    /// 
+    /// The server is unavailable due to overload or maintenance. (cf HTTP 503)
     pub fn server_unavail(message: impl Into<String>) -> Self {
         Self::ServerUnavail { message: message.into() }
     }
 
+    /// 42 CGI ERROR
+    /// 
+    /// A CGI process, or similar system for generating dynamic content, died
+    /// unexpectedly or timed out.
     pub fn cgi_error(message: impl Into<String>) -> Self {
         Self::CgiError { message: message.into() }
     }
 
+    /// 43 PROXY ERROR
+    /// 
+    /// A proxy request failed because the server was unable to successfully
+    /// complete a transaction with the remote host. (cf HTTP 502, 504)
     pub fn proxy_error(message: impl Into<String>) -> Self {
         Self::ProxyError { message: message.into() }
     }
 
+    /// 44 SLOW DOWN
+    /// 
+    /// Rate limiting is in effect. <META> is an integer number of seconds
+    /// which the client must wait before another request is made to this
+    /// server. (cf HTTP 429)
     pub fn slow_down(message: impl Into<String>) -> Self {
         Self::SlowDown { message: message.into() }
     }
 
+    /// 50 PERMANENT FAILURE
+    /// 
+    /// Status codes beginning with 5 are PERMANENT FAILURE status codes,
+    /// meaning:
+    /// 
+    /// The request has failed. There is no response body. The nature of the
+    /// failure is permanent, i.e. identical future requests will reliably fail
+    /// for the same reason. The contents of <META> may provide additional
+    /// information on the failure, and should be displayed to human users.
+    /// Automatic clients such as aggregators or indexing crawlers should not
+    /// repeat this request.
     pub fn failure_perm(message: impl Into<String>) -> Self {
         Self::FailurePerm { message: message.into() }
     }
 
+    /// 51 NOT FOUND
+    /// 
+    /// The requested resource could not be found but may be available in the
+    /// future. (cf HTTP 404) (struggling to remember this important status
+    /// code? Easy: you can't find things hidden at Area 51!)
     pub fn not_found(message: impl Into<String>) -> Self {
         Self::NotFound { message: message.into() }
     }
 
+    /// 52 GONE
+    /// 
+    /// The resource requested is no longer available and will not be available
+    /// again. Search engines and similar tools should remove this resource
+    /// from their indices. Content aggregators should stop requesting the
+    /// resource and convey to their human users that the subscribed resource
+    /// is gone. (cf HTTP 410)
     pub fn gone(message: impl Into<String>) -> Self {
         Self::Gone { message: message.into() }
     }
 
+    /// 53 PROXY REFUSED
+    /// 
+    /// The request was for a resource at a domain not served by the server and
+    /// the server does not accept proxy requests.
     pub fn proxy_refused(message: impl Into<String>) -> Self {
         Self::ProxyRefused { message: message.into() }
     }
 
+    /// 59 BAD REQUEST
+    /// 
+    /// The server was unable to parse the client's request, presumably due to
+    /// a malformed request. (cf HTTP 400)
     pub fn bad_request(message: impl Into<String>) -> Self {
         Self::BadRequest { message: message.into() }
     }
 
+    /// 60 CLIENT CERTIFICATE REQUIRED
+    /// 
+    /// Status codes beginning with 6 are CLIENT CERTIFICATE REQUIRED status
+    /// codes, meaning:
+    ///
+    /// The requested resource requires a client certificate to access. If the
+    /// request was made without a certificate, it should be repeated with one.
+    /// If the request was made with a certificate, the server did not accept
+    /// it and the request should be repeated with a different certificate. The
+    /// contents of <META> (and/or the specific 6x code) may provide additional
+    /// information on certificate requirements or the reason a certificate was
+    /// rejected.
     pub fn cert_required(message: impl Into<String>) -> Self {
         Self::CertRequired { message: message.into() }
     }
 
+    /// 61 CERTIFICATE NOT AUTHORIZED
+    /// 
+    /// The supplied client certificate is not authorised for accessing the
+    /// particular requested resource. The problem is not with the certificate
+    /// itself, which may be authorised for other resources.
     pub fn cert_not_authorized(message: impl Into<String>) -> Self {
         Self::CertNotAuthorized { message: message.into() }
     }
 
+    /// 62 CERTIFICATE NOT VALID
+    /// 
+    /// The supplied client certificate was not accepted because it is not
+    /// valid. This indicates a problem with the certificate in and of itself,
+    /// with no consideration of the particular requested resource. The most
+    /// likely cause is that the certificate's validity start date is in the
+    /// future or its expiry date has passed, but this code may also indicate
+    /// an invalid signature, or a violation of X509 standard requirements. The
+    /// <META> should provide more information about the exact error.
     pub fn cert_invalid(message: impl Into<String>) -> Self {
         Self::CertInvalid { message: message.into() }
     }
 
+    /// Get the <META> part of the response header
     pub fn meta(&self) -> &str {
         match self {
-            CapsuleResponse::Input { prompt } => &prompt,
-            CapsuleResponse::InputSensitive { prompt } => &prompt,
-            CapsuleResponse::Success { meta, body: _ } => &meta,
-            CapsuleResponse::RedirectTemp { redirect } => &redirect,
-            CapsuleResponse::RedirectPerm { redirect } => &redirect,
-            CapsuleResponse::FailureTemp { message } => &message,
-            CapsuleResponse::ServerUnavail { message } => &message,
-            CapsuleResponse::CgiError { message } => &message,
-            CapsuleResponse::ProxyError { message } => &message,
-            CapsuleResponse::SlowDown { message } => &message,
-            CapsuleResponse::FailurePerm { message } => &message,
-            CapsuleResponse::NotFound { message } => &message,
-            CapsuleResponse::Gone { message } => &message,
-            CapsuleResponse::ProxyRefused { message } => &message,
-            CapsuleResponse::BadRequest { message } => &message,
-            CapsuleResponse::CertRequired { message } => &message,
-            CapsuleResponse::CertNotAuthorized { message } => &message,
-            CapsuleResponse::CertInvalid { message } => &message,
+            Self::Input { prompt } => &prompt,
+            Self::InputSensitive { prompt } => &prompt,
+            Self::Success { meta, body: _ } => &meta,
+            Self::RedirectTemp { redirect } => &redirect,
+            Self::RedirectPerm { redirect } => &redirect,
+            Self::FailureTemp { message } => &message,
+            Self::ServerUnavail { message } => &message,
+            Self::CgiError { message } => &message,
+            Self::ProxyError { message } => &message,
+            Self::SlowDown { message } => &message,
+            Self::FailurePerm { message } => &message,
+            Self::NotFound { message } => &message,
+            Self::Gone { message } => &message,
+            Self::ProxyRefused { message } => &message,
+            Self::BadRequest { message } => &message,
+            Self::CertRequired { message } => &message,
+            Self::CertNotAuthorized { message } => &message,
+            Self::CertInvalid { message } => &message,
         }
     }
 
-    pub fn code(&self) -> u8 {
+    /// Get the <STATUS> part of the response header
+    pub fn status(&self) -> u8 {
         match self {
-            CapsuleResponse::Input { prompt: _ } => 10,
-            CapsuleResponse::InputSensitive { prompt: _ } => 11,
-            CapsuleResponse::Success { meta: _, body: _ } => 20,
-            CapsuleResponse::RedirectTemp { redirect: _ } => 30,
-            CapsuleResponse::RedirectPerm { redirect: _ } => 31,
-            CapsuleResponse::FailureTemp { message: _ } => 40,
-            CapsuleResponse::ServerUnavail { message: _ } => 41,
-            CapsuleResponse::CgiError { message: _ } => 42,
-            CapsuleResponse::ProxyError { message: _ } => 43,
-            CapsuleResponse::SlowDown { message: _ } => 44,
-            CapsuleResponse::FailurePerm { message: _ } => 50,
-            CapsuleResponse::NotFound { message: _ } => 51,
-            CapsuleResponse::Gone { message: _ } => 52,
-            CapsuleResponse::ProxyRefused { message: _ } => 53,
-            CapsuleResponse::BadRequest { message: _ } => 59,
-            CapsuleResponse::CertRequired { message: _ } => 60,
-            CapsuleResponse::CertNotAuthorized { message: _ } => 61,
-            CapsuleResponse::CertInvalid { message: _ } => 62,
+            Self::Input { prompt: _ } => 10,
+            Self::InputSensitive { prompt: _ } => 11,
+            Self::Success { meta: _, body: _ } => 20,
+            Self::RedirectTemp { redirect: _ } => 30,
+            Self::RedirectPerm { redirect: _ } => 31,
+            Self::FailureTemp { message: _ } => 40,
+            Self::ServerUnavail { message: _ } => 41,
+            Self::CgiError { message: _ } => 42,
+            Self::ProxyError { message: _ } => 43,
+            Self::SlowDown { message: _ } => 44,
+            Self::FailurePerm { message: _ } => 50,
+            Self::NotFound { message: _ } => 51,
+            Self::Gone { message: _ } => 52,
+            Self::ProxyRefused { message: _ } => 53,
+            Self::BadRequest { message: _ } => 59,
+            Self::CertRequired { message: _ } => 60,
+            Self::CertNotAuthorized { message: _ } => 61,
+            Self::CertInvalid { message: _ } => 62,
         }
     }
 
+    /// Get the human readable name of this response type
     pub fn name(&self) -> &'static str {
         match self {
-            CapsuleResponse::Input { prompt: _ } => "input",
-            CapsuleResponse::InputSensitive { prompt: _ } => "sensitive input",
-            CapsuleResponse::Success { meta: _, body: _ } => "success",
-            CapsuleResponse::RedirectTemp { redirect: _ } => "temporary redirect",
-            CapsuleResponse::RedirectPerm { redirect: _ } => "permanent redirect",
-            CapsuleResponse::FailureTemp { message: _ } => "temporary failure",
-            CapsuleResponse::ServerUnavail { message: _ } => "server unavailable",
-            CapsuleResponse::CgiError { message: _ } => "cgi error",
-            CapsuleResponse::ProxyError { message: _ } => "proxy error",
-            CapsuleResponse::SlowDown { message: _ } => "slow down",
-            CapsuleResponse::FailurePerm { message: _ } => "permanent failure",
-            CapsuleResponse::NotFound { message: _ } => "not found",
-            CapsuleResponse::Gone { message: _ } => "gone",
-            CapsuleResponse::ProxyRefused { message: _ } => "proxy refused",
-            CapsuleResponse::BadRequest { message: _ } => "bad request",
-            CapsuleResponse::CertRequired { message: _ } => "certificate required",
-            CapsuleResponse::CertNotAuthorized { message: _ } => "certificate not authorized",
-            CapsuleResponse::CertInvalid { message: _ } => "certificate not valid",
+            Self::Input { prompt: _ } => "input",
+            Self::InputSensitive { prompt: _ } => "sensitive input",
+            Self::Success { meta: _, body: _ } => "success",
+            Self::RedirectTemp { redirect: _ } => "temporary redirect",
+            Self::RedirectPerm { redirect: _ } => "permanent redirect",
+            Self::FailureTemp { message: _ } => "temporary failure",
+            Self::ServerUnavail { message: _ } => "server unavailable",
+            Self::CgiError { message: _ } => "cgi error",
+            Self::ProxyError { message: _ } => "proxy error",
+            Self::SlowDown { message: _ } => "slow down",
+            Self::FailurePerm { message: _ } => "permanent failure",
+            Self::NotFound { message: _ } => "not found",
+            Self::Gone { message: _ } => "gone",
+            Self::ProxyRefused { message: _ } => "proxy refused",
+            Self::BadRequest { message: _ } => "bad request",
+            Self::CertRequired { message: _ } => "certificate required",
+            Self::CertNotAuthorized { message: _ } => "certificate not authorized",
+            Self::CertInvalid { message: _ } => "certificate not valid",
         }
     }
 
+    /// Get the full header of this response
     pub fn header(&self) -> String {
-        format!("{} {}\r\n", self.code(), self.meta())
+        format!("{} {}\r\n", self.status(), self.meta())
     }
 
+    /// Get the body of this response
     pub fn body(&self) -> Option<&str> {
         match &self {
-            CapsuleResponse::Success { meta: _, body } => Some(body),
+            Self::Success { meta: _, body } => Some(body),
             _ => None
         }
     }
 
+    /// Get safe human readable information about this response
+    /// 
+    /// This is a helper function that formats the status/name into a string
     pub fn info(&self) -> String {
-        format!("{} ({}) {}", self.code(), self.name(), self.meta())
+        format!("{} ({})", self.status(), self.name())
     }
 }
 
-impl Display for CapsuleResponse {
+impl Display for GeminiResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.header())?;
         if let Some(body) = self.body() {
@@ -205,119 +361,4 @@ impl Display for CapsuleResponse {
         };
         Ok(())
     }
-}
-
-
-#[derive(Deserialize)]
-struct CapsuleConf {
-    name: String,
-    domain: String,
-    rules: Vec<String>,
-}
-
-
-pub struct CapsuleConfig {
-    pub name: String,
-    pub domain: String,
-    pub rules: Vec<Regex>,
-}
-
-impl CapsuleConfig {
-    fn from(conf: CapsuleConf) -> Result<Self, regex::Error> {
-        let mut rules = Vec::new();
-        for rule in conf.rules {
-            rules.push(Regex::new(&rule)?)
-        }
-        Ok(CapsuleConfig {
-            name: conf.name,
-            domain: conf.domain,
-            rules,
-        })
-    }
-    pub fn test(&self, domain: &str, path: &str) -> bool {
-        if domain != self.domain {
-            return false;
-        }
-        for rule in &self.rules {
-            if rule.is_match(path) {
-                return true;
-            }
-        }
-        true
-    }
-}
-
-#[async_trait]
-pub trait Capsule : Send + Sync + 'static {
-    /// Get the general capsule settings for this capsule
-    fn get_capsule(&self) -> &CapsuleConfig;
-    /// Test whether this capsule is willing to handle the given request
-    fn test(&self, domain: &str, path: &str) -> bool;
-    /// Serve a client's request
-    /// 
-    /// This should return a string of the full response including headers e.g.
-    /// "20 text/gemini\r\nHello World" and the time to cache this response.
-    /// 
-    /// If the cache time is 0.0, then the default cache time will be used for this response.
-    /// If No cache time is given, then no cache will be made.
-    /// 
-    async fn serve(&self, request: &gemini::Request) -> Result<(String, Option<f32>), Box<dyn std::error::Error>>;
-}
-
-pub trait Loader {
-    /// Check if the loader is willing to load the config
-    fn can_load(&self, value: &Value) -> bool;
-    /// Load the config file
-    fn load(&self, path: &Path, conf: CapsuleConfig, value: Value) -> io::Result<Arc<dyn Capsule>>;
-}
-
-/// Load a capsule given a config path and a list of loaders
-pub async fn load_capsule(path: impl AsRef<Path>, loaders: &[Arc<dyn Loader>]) -> Result<Arc<dyn Capsule>, Box<dyn std::error::Error>> {
-    let path = path.as_ref();
-    let value = fs::read_to_string(path).await?.parse::<Value>()?;
-    let conf: CapsuleConf = value.clone().try_into()?;
-    let config = CapsuleConfig::from(conf)?;
-
-    for loader in loaders {
-        if loader.as_ref().can_load(&value) {
-            return Ok(loader.load(path, config, value)?);
-        }
-    }
-    return Err(Box::new(io::Error::new(
-        io::ErrorKind::InvalidData, 
-        format!("Could not find a willing loader for '{}'", config.name)
-    )));
-}
-
-/// Load all capsules in a directory using the given list of loaders
-pub async fn load_capsules(dir: impl AsRef<Path>, loaders: &[Arc<dyn Loader>]) -> Result<Vec<Arc<dyn Capsule>>, Box<dyn std::error::Error>> {
-    let dir = dir.as_ref();
-    let mut dirs = match fs::read_dir(dir).await {
-        Ok(dirs) => dirs,
-        Err(err) => {
-            if err.kind() != io::ErrorKind::NotFound {
-                return Err(Box::new(err));
-            } 
-            fs::create_dir_all(dir).await?;
-            fs::read_dir(dir).await?
-        }
-    };
-    let mut capsules = Vec::new();
-    while let Some(ent) = dirs.next_entry().await? {
-        if let Some(p) = ent.path().to_str() {
-            let (_name, ext) = pathutil::splitext(p);
-            if ext.to_ascii_lowercase() != ".toml" {
-                eprintln!("Skipping '{}' because it is not a toml file", p);
-                continue;
-            }
-            capsules.push(load_capsule(p, loaders).await?);
-        }
-    }
-    if capsules.len() == 0 {
-        return Err(Box::new(io::Error::new(
-            io::ErrorKind::NotFound, 
-            "Could not find any capsules to load"
-        )));
-    }
-    Ok(capsules)
 }

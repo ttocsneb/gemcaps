@@ -24,7 +24,7 @@ pub async fn redirect(conf: &CapsuleConf, sni: &str, client_hello: &[u8], stream
         }
     };
 
-    let mut logger = logger.as_replace_logs(application.access_log.to_owned(), application.error_log.to_owned()).await?;
+    let mut logger = logger.as_logs(application.access_log.to_owned(), application.error_log.to_owned()).await?;
     let mut redirect = TcpStream::connect(&application.redirect).await?;
     redirect.write_all(client_hello).await?;
 

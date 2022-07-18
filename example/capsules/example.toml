@@ -6,3 +6,5 @@ domain_names = ["localhost"]
 
 [[application]]
 file_root = "dist/"
+indexes = ["index.gmi"]
+send_folders = true

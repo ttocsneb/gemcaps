@@ -10,6 +10,7 @@ pub struct Connection {
     stream: TcpStream,
 }
 
+#[allow(dead_code)]
 impl Connection {
     pub fn new(connection: ServerConnection, stream: TcpStream) -> Self {
         Self {

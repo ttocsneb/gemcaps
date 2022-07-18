@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io, path::{Component, Path, PathBuf}};
+use std::{collections::HashMap, io, path::{Component, Path, PathBuf}, borrow::Cow};
 
 use regex::Regex;
 use lazy_static::lazy_static;
@@ -12,7 +12,7 @@ use crate::args;
 /// 
 /// # Example
 /// 
-/// ```rust
+/// ```
 /// let joined = join("asdf", "qwerty");
 /// assert_eq!(joined, "asdf/qwerty");
 /// ```
@@ -33,7 +33,7 @@ pub fn join(path_a: &str, path_b: &str) -> String {
 /// 
 /// # Example
 /// 
-/// ```rust
+/// ```
 /// let joined = join!("a", "b", "c");
 /// assert_eq!(joined, "a/b/c");
 /// ```
@@ -51,29 +51,6 @@ macro_rules! join {
     );
 }
 
-/// Make a path absolute given a base path
-/// 
-/// If path is an absolute path, then path is returned, otherwise
-/// join(base, path) is returned
-/// 
-/// # Example
-/// 
-/// ```rust
-/// let abs = abspath("/foo/bar", "/cheese/qwerty");
-/// assert_eq!(abs, "/cheese/qwerty");
-/// let abs = abspath("/foo/bar", "cheese/qwerty");
-/// assert_eq!(abs, "/foo/bar/cheese/qwerty");
-/// ```
-/// 
-pub fn abspath(base: impl AsRef<Path>, path: impl AsRef<Path>) -> PathBuf {
-    let base = base.as_ref();
-    let path = path.as_ref();
-    if path.is_absolute() {
-        return path.to_path_buf();
-    }
-    base.join(path)
-}
-
 /// Traverse a path that contains ParentDir (..) safely.
 /// 
 /// If the path traversal leaves the current path, then an error is returned.
@@ -81,7 +58,7 @@ pub fn abspath(base: impl AsRef<Path>, path: impl AsRef<Path>) -> PathBuf {
 /// 
 /// # Example
 /// 
-/// ```rust
+/// ```
 /// let traversed = traversal_safe("/foo/bar/../cheese").unwrap();
 /// assert_eq!(traversed, "/foo/cheese");
 /// traversal_safe("/foo/bar/../../..").expect_err("Should return an error");
@@ -119,50 +96,87 @@ pub fn traversal_safe(path: impl AsRef<Path>) -> Result<PathBuf, std::io::Error>
     return Ok(result_path);
 }
 
-
-/// Split the name from the extension
-/// 
-/// # Example
-/// 
-/// ```rust
-/// let (name, ext) = splitext("foo.bar");
-/// assert_eq!(name, "foo");
-/// assert_eq!(ext, ".bar");
-/// ```
-pub fn splitext<'a>(path: &'a str) -> (&'a str, &'a str) {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"(.*)(\..*)").unwrap();
-    }
-    let groups = match RE.captures(path) {
-        Some(groups) => groups,
-        None => {
-            return (path, "");
-        }
-    };
-    let name = groups.get(1).map_or("", |m| m.as_str());
-    let ext = groups.get(2).map_or("", |m| m.as_str());
-    (name, ext)
-}
-
 /// Get the final element in the path
 /// 
 /// # Example
 /// 
-/// ```rust
+/// ```
 /// let name = basename("/foo/bar/cheese");
 /// assert_eq!(name, "cheese");
 /// ```
-/// 
+#[allow(dead_code)]
 pub fn basename<'a>(path: &'a str) -> &'a str {
     lazy_static! {
-        static ref RE: Regex = Regex::new(r"/([^/]+)$").unwrap();
-    }
-    if path.ends_with('/') {
-        return basename(&path[0 .. path.len() - 1]);
+        static ref RE: Regex = Regex::new(r"/([^/]+)/?$").unwrap();
     }
     match RE.captures(path) {
         Some(m) => m.get(1).map_or("", |m| m.as_str()),
         None => path,
+    }
+}
+
+/// Get the parent directory of the path
+/// 
+/// If the path is a relative path, then up-dirs may be added to the path.
+/// 
+/// If the path is an absolute path, then None will be returned when trying to
+/// get the parent of the root directory
+/// 
+/// # Example
+/// 
+/// ```
+/// let parent = parent("/foo/bar/cheese");
+/// assert_eq!(parent.unwrap(), "/foo/bar/");
+/// let relative = parent("");
+/// assert_eq!(parent.unwrap(), "../");
+/// let relative = parent("/");
+/// assert_eq!(parent, None);
+/// 
+/// ```
+pub fn parent<'a>(path: &'a str) -> Option<Cow<'a, str>> {
+    lazy_static! {
+        static ref IS_UP: Regex = Regex::new(r"\.\./?$").unwrap();
+        static ref BASE_DIR: Regex = Regex::new(r"[^/]+/?$").unwrap();
+    }
+    if path == "/" {
+        return None;
+    }
+
+    if path.is_empty() || IS_UP.is_match(path) {
+        let mut path = Cow::from(path);
+        if !path.is_empty() && !path.ends_with('/') {
+            path += "/";
+        }
+        path += "../";
+        return Some(path);
+    }
+    Some(BASE_DIR.replace(path, ""))
+}
+
+/// Encode a path with percent encoding using [urlencoding]
+/// 
+/// urlencoding by default will encode '/' as '%2F' which should not be the
+/// case when dealing with paths. This function will keep '/' as is while
+/// encoding all other characters.
+/// 
+/// If no encoding is needed, then the original string is returned.
+/// 
+pub fn encode(path: &str) -> Cow<str> {
+    let path = Cow::from(path);
+    let mut changed = false;
+
+    let parts: Vec<_> = path.split('/').map(|group| {
+        let group = urlencoding::encode(&group);
+        if let Cow::Owned(_) = &group {
+            changed = true;
+        }
+        group
+    }).collect();
+
+    if changed {
+        parts.join("/").into()
+    } else {
+        path
     }
 }
 
@@ -174,7 +188,7 @@ pub fn basename<'a>(path: &'a str) -> &'a str {
 /// 
 /// # Example
 /// 
-/// ```rust
+/// ```
 /// let expanded = expand("foo/bar/../../../cheese/../yeet/").unwrap();
 /// assert_eq!(expanded, "../yeet/");
 /// ```
@@ -216,8 +230,13 @@ pub fn expand(path: &str) -> io::Result<String> {
 
 fn load_mimetypes() -> io::Result<HashMap<String, String>> {
     let args = args();
+    let config = if args.config == "." {
+        "example"
+    } else {
+        &args.config
+    };
 
-    let mimetypes = std::fs::read_to_string(join(&args.config, "mime-types.toml"))?;
+    let mimetypes = std::fs::read_to_string(join(config, "mime-types.toml"))?;
     Ok(toml::from_str(&mimetypes)?)
 }
 
@@ -259,24 +278,29 @@ mod tests {
     }
 
     #[test]
-    fn test_splitext() {
-        let (name, ext) = splitext("asdf.qwer");
-        assert_eq!(name, "asdf");
-        assert_eq!(ext, ".qwer");
-        let (name, ext) = splitext("asdf");
-        assert_eq!(name, "asdf");
-        assert_eq!(ext, "");
-        let (name, ext) = splitext(".asdf");
-        assert_eq!(name, "");
-        assert_eq!(ext, ".asdf");
-    }
-
-    #[test]
     fn test_basename() {
         assert_eq!(basename("asdf/qwerty"), "qwerty");
         assert_eq!(basename("/qwerty"), "qwerty");
         assert_eq!(basename("qwerty"), "qwerty");
         assert_eq!(basename("asdf/qwerty/"), "qwerty");
+    }
+
+    #[test]
+    fn test_parent() {
+        assert_eq!(parent("/asdf/qwerty").unwrap(), "/asdf/");
+        assert_eq!(parent("asdf/qwerty").unwrap(), "asdf/");
+        assert_eq!(parent("asdf/").unwrap(), "");
+        assert_eq!(parent("/"), None);
+        assert_eq!(parent("").unwrap(), "../");
+        assert_eq!(parent("../").unwrap(), "../../");
+    }
+
+    #[test]
+    fn test_encode() {
+        assert_eq!(encode("foo/bar"), "foo/bar");
+        assert_eq!(encode("foo cheese/bar"), "foo%20cheese/bar");
+        assert_eq!(encode("foo cheese"), "foo%20cheese");
+        assert_eq!(encode("/foo/bar/"), "/foo/bar/");
     }
 
     #[test]
