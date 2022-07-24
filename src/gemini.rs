@@ -2,6 +2,7 @@ use std::{ops::Range, fmt::Display};
 
 use regex::Regex;
 use lazy_static::lazy_static;
+use serde::{Deserialize, de::Visitor};
 
 use crate::error::GemcapsError;
 
@@ -90,6 +91,39 @@ impl TryFrom<String> for Request {
 impl Display for Request {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.uri())
+    }
+}
+
+struct RequestVisitor;
+impl<'de> Visitor<'de> for RequestVisitor {
+    type Value = Request;
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        Request::new(v).map_err(
+            |err| E::custom(err.to_string())
+        )
+    }
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        Request::new(v).map_err(
+            |err| E::custom(err.to_string())
+        )
+    }
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a request string")
+    }
+}
+
+impl<'de> Deserialize<'de> for Request {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de> {
+        deserializer.deserialize_string(RequestVisitor)
     }
 }
 

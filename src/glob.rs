@@ -1,3 +1,5 @@
+use serde::{Deserialize, de::Visitor};
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Glob {
@@ -40,6 +42,41 @@ impl Glob {
             return true;
         }
         text.is_empty()
+    }
+}
+
+struct GlobVisitor;
+impl<'de> Visitor<'de> for GlobVisitor {
+    type Value = Glob;
+
+    fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        Ok(Glob::new(v))
+    }
+
+    fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        Ok(Glob::new(v))
+    }
+
+    fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error, {
+        Ok(Glob::new(v))
+    }
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        formatter.write_str("a string that uses '*' to match other strings")
+    }
+}
+
+impl<'de> Deserialize<'de> for Glob {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        deserializer.deserialize_str(GlobVisitor)
     }
 }
 

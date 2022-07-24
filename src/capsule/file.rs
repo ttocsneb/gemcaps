@@ -2,7 +2,7 @@ use std::{path::Path, io, ffi::OsStr, os::unix::prelude::OsStrExt};
 
 use tokio::fs;
 
-use crate::{gemini::Request, log::Logger, error::GemcapsError, config::FileConf, pathutil};
+use crate::{gemini::Request, log::Logger, error::GemcapsError, pathutil, config::file::FileConf};
 
 use super::GeminiResponse;
 

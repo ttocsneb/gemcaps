@@ -1,7 +1,7 @@
 
 use tokio::{net::{TcpStream, tcp::{ReadHalf, WriteHalf}}, io::{AsyncWriteExt, AsyncReadExt}, join};
 
-use crate::{log::Logger, error::GemcapsError, config::{RedirectConf, CapsuleConf, ConfItem}};
+use crate::{log::Logger, error::GemcapsError, config::{CapsuleConf, ConfItem, redirect::RedirectConf}};
 
 
 pub async fn redirect(conf: &CapsuleConf, sni: &str, client_hello: &[u8], stream: &mut TcpStream, logger: &Logger) -> Result<bool, GemcapsError> {

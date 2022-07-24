@@ -1,5 +1,5 @@
 use std::{path::Path, vec, mem};
-use config::ConfItem;
+use config::{ConfItem, ConfItemTrait};
 use futures::future;
 
 use clap::Parser;
@@ -8,7 +8,7 @@ use runner::capsule_main;
 use tokio::{fs, io::AsyncReadExt};
 use lazy_static::lazy_static;
 
-use crate::{error::GemcapsError, config::{Configuration, CapsuleConf}, pem::Cert};
+use crate::{error::GemcapsError, config::{ConfDeserializer, CapsuleConf}, pem::Cert};
 
 mod capsule;
 mod pathutil;
@@ -64,7 +64,7 @@ async fn runner() -> Result<(), GemcapsError> {
 
         file.read_to_end(&mut buf).await?;
 
-        let conf: Configuration = toml::from_str(&String::from_utf8(buf)?).map_err(
+        let conf: ConfDeserializer = toml::from_str(&String::from_utf8(buf)?).map_err(
             |err| GemcapsError::new(
                 format!("Invalid configuration in {}: {}", name, err)
             )

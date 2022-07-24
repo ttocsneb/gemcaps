@@ -4,46 +4,38 @@ use regex::Regex;
 use rustls::ServerConfig;
 use serde::Deserialize;
 
-use crate::{error::GemcapsError, pem::Cert, glob::Glob, gemini::Request};
+pub mod redirect;
+pub mod proxy;
+pub mod cgi;
+pub mod file;
 
-#[derive(Debug, Clone)]
-pub struct RedirectConf {
-    pub domain_names: Vec<Glob>,
-    pub redirect: String,
-    pub error_log: Option<PathBuf>,
-    pub access_log: Option<PathBuf>,
+use crate::{error::GemcapsError, pem::Cert, glob::Glob};
+
+use self::cgi::CGIConf;
+use self::proxy::ProxyConf;
+use self::redirect::RedirectConf;
+use self::file::FileConf;
+
+pub trait ConfItemTrait {
+    fn domain_names(&self) -> &Vec<Glob>;
+
+    fn rule(&self) -> Option<&Regex>;
+
+    fn error_log(&self) -> Option<&PathBuf>;
+    fn error_log_mut(&mut self) -> Option<&mut PathBuf>;
+
+    fn access_log(&self) -> Option<&PathBuf>;
+    fn access_log_mut(&mut self) -> Option<&mut PathBuf>;
+
+    fn apply_default_domain_names(&mut self, domain_names: &Vec<Glob>);
+    fn apply_default_rule(&mut self, rule: &RegexDe);
+    fn apply_default_error_log(&mut self, error_log: &PathBuf);
+    fn apply_default_access_log(&mut self, access_log: &PathBuf);
 }
 
-#[derive(Debug, Clone)]
-pub struct ProxyConf {
-    pub domain_names: Vec<Glob>,
-    pub proxy: Request,
-    pub error_log: Option<PathBuf>,
-    pub access_log: Option<PathBuf>,
-    pub rule: Option<Regex>,
-}
 
-#[derive(Debug, Clone)]
-pub struct CGIConf {
-    pub domain_names: Vec<Glob>,
-    pub cgi_root: PathBuf,
-    pub error_log: Option<PathBuf>,
-    pub access_log: Option<PathBuf>,
-    pub rule: Option<Regex>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FileConf {
-    pub domain_names: Vec<Glob>,
-    pub file_root: PathBuf,
-    pub error_log: Option<PathBuf>,
-    pub access_log: Option<PathBuf>,
-    pub rule: Option<Regex>,
-    pub send_folders: bool,
-    pub indexes: Vec<Glob>,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
 pub enum ConfItem {
     Redirect(RedirectConf),
     Proxy(ProxyConf),
@@ -51,59 +43,65 @@ pub enum ConfItem {
     File(FileConf),
 }
 
-macro_rules! shared_item {
-    ($self:ident.$item:ident) => {
-        match &$self {
-            ConfItem::Redirect(item) => &item.$item,
-            ConfItem::Proxy(item) => &item.$item,
-            ConfItem::CGI(item) => &item.$item,
-            ConfItem::File(item) => &item.$item,
-        }
-    };
-}
-
-#[allow(dead_code)]
 impl ConfItem {
-    pub fn domain_names(&self) -> &Vec<Glob> {
-        shared_item!(self.domain_names)
-    }
-
-    pub fn error_log(&self) -> Option<&PathBuf> {
-        shared_item!(self.error_log).as_ref()
-    }
-    
-    pub fn access_log(&self) -> Option<&PathBuf> {
-        shared_item!(self.access_log).as_ref()
-    }
-
-    pub fn access_log_mut(&mut self) -> Option<&mut PathBuf> {
+    #[inline]
+    fn conf_item(&self) -> &dyn ConfItemTrait {
         match self {
-            ConfItem::Redirect(item) => item.access_log.as_mut(),
-            ConfItem::Proxy(item) => item.access_log.as_mut(),
-            ConfItem::CGI(item) => item.access_log.as_mut(),
-            ConfItem::File(item) => item.access_log.as_mut(),
+            ConfItem::Redirect(redirect) => redirect as &dyn ConfItemTrait,
+            ConfItem::Proxy(proxy) => proxy as &dyn ConfItemTrait,
+            ConfItem::CGI(cgi) => cgi as &dyn ConfItemTrait,
+            ConfItem::File(file) => file as &dyn ConfItemTrait,
         }
     }
 
-    pub fn error_log_mut(&mut self) -> Option<&mut PathBuf> {
+    #[inline]
+    fn conf_item_mut(&mut self) -> &mut dyn ConfItemTrait {
         match self {
-            ConfItem::Redirect(item) => item.error_log.as_mut(),
-            ConfItem::Proxy(item) => item.error_log.as_mut(),
-            ConfItem::CGI(item) => item.error_log.as_mut(),
-            ConfItem::File(item) => item.error_log.as_mut(),
+            ConfItem::Redirect(redirect) => redirect as &mut dyn ConfItemTrait,
+            ConfItem::Proxy(proxy) => proxy as &mut dyn ConfItemTrait,
+            ConfItem::CGI(cgi) => cgi as &mut dyn ConfItemTrait,
+            ConfItem::File(file) => file as &mut dyn ConfItemTrait,
         }
     }
 
-    pub fn rule(&self) -> Option<&Regex> {
-        match self {
-            ConfItem::Redirect(_) => None,
-            ConfItem::Proxy(item) => item.rule.as_ref(),
-            ConfItem::CGI(item) => item.rule.as_ref(),
-            ConfItem::File(item) => item.rule.as_ref(),
-        }
-    }
 }
 
+impl ConfItemTrait for ConfItem {
+    fn domain_names(&self) -> &Vec<Glob> {
+        self.conf_item().domain_names()
+    }
+
+    fn rule(&self) -> Option<&Regex> {
+        self.conf_item().rule()
+    }
+
+    fn error_log(&self) -> Option<&PathBuf> {
+        self.conf_item().error_log()
+    }
+    fn error_log_mut(&mut self) -> Option<&mut PathBuf> {
+        self.conf_item_mut().error_log_mut()
+    }
+
+    fn access_log(&self) -> Option<&PathBuf> {
+        self.conf_item().access_log()
+    }
+    fn access_log_mut(&mut self) -> Option<&mut PathBuf> {
+        self.conf_item_mut().access_log_mut()
+    }
+
+    fn apply_default_domain_names(&mut self, domain_names: &Vec<Glob>) {
+        self.conf_item_mut().apply_default_domain_names(domain_names)
+    }
+    fn apply_default_rule(&mut self, rule: &RegexDe) {
+        self.conf_item_mut().apply_default_rule(rule)
+    }
+    fn apply_default_error_log(&mut self, error_log: &PathBuf) {
+        self.conf_item_mut().apply_default_error_log(error_log)
+    }
+    fn apply_default_access_log(&mut self, access_log: &PathBuf) {
+        self.conf_item_mut().apply_default_access_log(access_log)
+    }
+}
 
 #[derive(Clone)]
 pub struct CapsuleConf {
@@ -126,188 +124,36 @@ impl Debug for CapsuleConf {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ConfigurationItem {
-    domain_names: Option<Vec<String>>,
-    error_log: Option<String>,
-    access_log: Option<String>,
-    rule: Option<String>,
-    send_folders: Option<bool>,
-    indexes: Option<Vec<String>>,
-
-    redirect: Option<String>,
-    proxy: Option<String>,
-    cgi_root: Option<String>,
-    file_root: Option<String>,
-}
-
-impl ConfigurationItem {
-    fn populate_defaults(&mut self, defaults: &ConfigurationItem) {
-        if let Some(error_log) = &defaults.error_log {
-            if self.error_log == None {
-                self.error_log = Some(error_log.to_owned());
-            }
-        }
-        if let Some(access_log) = &defaults.access_log {
-            if self.access_log == None {
-                self.access_log = Some(access_log.to_owned());
-            }
-        }
-        if let Some(rule) = &defaults.rule {
-            if self.rule == None {
-                self.rule = Some(rule.to_owned());
-            }
-        }
-        if let Some(domain_names) = &defaults.domain_names {
-            if self.domain_names == None {
-                self.domain_names = Some(domain_names.to_owned());
-            }
-        }
-    }
-
-}
-
-impl TryFrom<ConfigurationItem> for ConfItem {
-    type Error = GemcapsError;
-
-    fn try_from(value: ConfigurationItem) -> Result<Self, Self::Error> {
-        Ok(if value.redirect != None {
-            ConfItem::Redirect(RedirectConf::try_from(value)?)
-        } else if value.proxy != None {
-            ConfItem::Proxy(ProxyConf::try_from(value)?)
-        } else if value.cgi_root != None {
-            ConfItem::CGI(CGIConf::try_from(value)?)
-        } else if value.file_root != None {
-            ConfItem::File(FileConf::try_from(value)?)
-        } else {
-            unreachable!();
-        })
-    }
-}
-
-fn assert_none<T, S: AsRef<str>>(value: Option<T>, name: S) -> Result<(), GemcapsError> {
-    match value {
-        Some(_) => Err(GemcapsError::new(format!("Unexpected token `{}`", name.as_ref()))),
-        None => Ok(())
-    }
-}
-
-impl TryFrom<ConfigurationItem> for RedirectConf {
-    type Error = GemcapsError;
-
-    fn try_from(value: ConfigurationItem) -> Result<Self, Self::Error> {
-        assert_none(value.cgi_root, "cgi_root")?;
-        assert_none(value.file_root, "file_root")?;
-        assert_none(value.proxy, "proxy")?;
-        assert_none(value.rule, "rule")?;
-        Ok(Self {
-            domain_names: value.domain_names.ok_or(GemcapsError::new("Expected domain_names"))?
-                .into_iter().map(|v| Glob::new(v)).collect(),
-            redirect: value.redirect.ok_or(GemcapsError::new("Expected Redirect"))?,
-            error_log: value.error_log.map(|v| PathBuf::from(v)),
-            access_log: value.access_log.map(|v| PathBuf::from(v)),
-        })
-    }
-}
-
-impl TryFrom<ConfigurationItem> for ProxyConf {
-    type Error = GemcapsError;
-
-    fn try_from(value: ConfigurationItem) -> Result<Self, Self::Error> {
-        assert_none(value.cgi_root, "cgi_root")?;
-        assert_none(value.file_root, "file_root")?;
-        assert_none(value.redirect, "redirect")?;
-        Ok(Self {
-            domain_names: value.domain_names.ok_or(GemcapsError::new("Expected domain_names"))?
-                .into_iter().map(|v| Glob::new(v)).collect(),
-            proxy: Request::new(value.proxy.ok_or(GemcapsError::new("Expected Redirect"))?)?,
-            error_log: value.error_log.map(|v| PathBuf::from(v)),
-            access_log: value.access_log.map(|v| PathBuf::from(v)),
-            rule: match value.rule {
-                Some(rule) => Some(Regex::new(&rule)?),
-                None => None,
-            },
-        })
-    }
-}
-
-impl TryFrom<ConfigurationItem> for CGIConf {
-    type Error = GemcapsError;
-
-    fn try_from(value: ConfigurationItem) -> Result<Self, Self::Error> {
-        assert_none(value.proxy, "proxy")?;
-        assert_none(value.file_root, "file_root")?;
-        assert_none(value.redirect, "redirect")?;
-        Ok(Self {
-            domain_names: value.domain_names.ok_or(GemcapsError::new("Expected domain_names"))?
-                .into_iter().map(|v| Glob::new(v)).collect(),
-            cgi_root: PathBuf::from(value.cgi_root.ok_or(GemcapsError::new("Expected Redirect"))?),
-            error_log: value.error_log.map(|v| PathBuf::from(v)),
-            access_log: value.access_log.map(|v| PathBuf::from(v)),
-            rule: match value.rule {
-                Some(rule) => Some(Regex::new(&rule)?),
-                None => None,
-            },
-        })
-    }
-}
-
-impl TryFrom<ConfigurationItem> for FileConf {
-    type Error = GemcapsError;
-
-    fn try_from(value: ConfigurationItem) -> Result<Self, Self::Error> {
-        assert_none(value.proxy, "proxy")?;
-        assert_none(value.cgi_root, "cgi_root")?;
-        assert_none(value.redirect, "redirect")?;
-        Ok(Self {
-            domain_names: value.domain_names.ok_or(GemcapsError::new("Expected domain_names"))?
-                .into_iter().map(|v| Glob::new(v)).collect(),
-            file_root: PathBuf::from(value.file_root.ok_or(GemcapsError::new("Expected Redirect"))?),
-            error_log: value.error_log.map(|v| PathBuf::from(v)),
-            access_log: value.access_log.map(|v| PathBuf::from(v)),
-            rule: match value.rule {
-                Some(rule) => Some(Regex::new(&rule)?),
-                None => None,
-            },
-            send_folders: value.send_folders.or(Some(false)).unwrap(),
-            indexes: value.indexes.map(|indexes|
-                indexes.into_iter().map(|index| Glob::new(index)).collect()
-            ).or(Some(vec![])).unwrap(),
-        })
-    }
-}
-
-
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct Configuration {
+pub struct ConfDeserializer {
     listen: Option<String>,
-    certificate: Option<String>,
-    certificate_key: Option<String>,
+    certificate: Option<PathBuf>,
+    certificate_key: Option<PathBuf>,
 
-    error_log: Option<String>,
-    access_log: Option<String>,
-    rule: Option<String>,
-    domain_names: Option<Vec<String>>,
+    error_log: Option<PathBuf>,
+    access_log: Option<PathBuf>,
+    rule: Option<RegexDe>,
+    domain_names: Option<Vec<Glob>>,
 
-    application: Vec<ConfigurationItem>,
+    application: Vec<ConfItem>,
 }
 
-impl TryFrom<Configuration> for CapsuleConf {
+impl TryFrom<ConfDeserializer> for CapsuleConf {
     type Error = GemcapsError;
 
-    fn try_from(value: Configuration) -> Result<Self, Self::Error> {
-        let mut items = Vec::new();
-
-        let defaults = ConfigurationItem {
-            domain_names: value.domain_names,
-            error_log: value.error_log.clone(),
-            access_log: value.access_log,
-            rule: value.rule, 
-            ..Default::default()
-        };
-
-        for mut item in value.application {
-            item.populate_defaults(&defaults);
-            items.push(item.try_into()?);
+    fn try_from(mut value: ConfDeserializer) -> Result<Self, Self::Error> {
+        for item in &mut value.application {
+            if let Some(error_log) = &value.error_log {
+                item.apply_default_error_log(error_log);
+            }
+            if let Some(access_log) = &value.access_log {
+                item.apply_default_access_log(access_log);
+            }
+            if let Some(rule) = &value.rule {
+                item.apply_default_rule(rule);
+            }
+            if let Some(domain_names) = &value.domain_names {
+                item.apply_default_domain_names(domain_names);
+            }
         }
         
         let certificate = if value.certificate != None && value.certificate_key != None {
@@ -322,7 +168,7 @@ impl TryFrom<Configuration> for CapsuleConf {
         };
 
         Ok(Self {
-            items,
+            items: value.application,
             certificate,
             server_conf: None,
             listen: value.listen.or(Some("0.0.0.0:1965".into())).unwrap(),
@@ -335,6 +181,38 @@ impl TryFrom<Configuration> for CapsuleConf {
 }
 
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct RegexDe(
+    #[serde(with = "serde_regex")]
+    Regex
+);
+
+impl RegexDe {
+    #[inline]
+    pub fn is_match(&self, text: &str) -> bool {
+        self.0.is_match(text)
+    }
+}
+
+impl AsRef<Regex> for RegexDe {
+    fn as_ref(&self) -> &Regex {
+        &self.0
+    }
+}
+
+impl AsMut<Regex> for RegexDe {
+    fn as_mut(&mut self) -> &mut Regex {
+        &mut self.0
+    }
+}
+
+impl From<RegexDe> for Regex {
+    fn from(value: RegexDe) -> Self {
+        value.0
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -342,7 +220,7 @@ mod tests {
    
     #[test]
     fn test_redirect() {
-        let config: Configuration = toml::from_str("
+        let config: ConfDeserializer = toml::from_str("
         [[application]]
         domain_names = [\"foobar.com\"]
         redirect = \"gemini://localhost:1970\"
@@ -356,25 +234,12 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_redirect() {
-        let config: Configuration = toml::from_str("
-        [[application]]
-        domain_names = [\"foobar.com\"]
-        redirect = \"gemini://localhost:1970\"
-        rule = \"/app\"
-        ").unwrap();
-
-        CapsuleConf::try_from(config).expect_err("rule should have been invalid");
-    }
-
-    #[test]
     fn test_proxy() {
-        let config: Configuration = toml::from_str("
+        let config: ConfDeserializer = toml::from_str("
         [[application]]
         domain_names = [\"foobar.com\"]
         proxy = \"gemini://localhost:1970\"
         rule = \"/app\"
-        substitution = \"#/app#\"
         ").unwrap();
 
         let conf = CapsuleConf::try_from(config).unwrap();
@@ -386,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_cgi() {
-        let config: Configuration = toml::from_str("
+        let config: ConfDeserializer = toml::from_str("
         [[application]]
         domain_names = [\"foobar.com\"]
         cgi_root = \"gemini/foobar\"
@@ -402,7 +267,7 @@ mod tests {
 
     #[test]
     fn test_file() {
-        let config: Configuration = toml::from_str("
+        let config: ConfDeserializer = toml::from_str("
         [[application]]
         domain_names = [\"foobar.com\"]
         file_root = \"gemini/foobar\"
@@ -417,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_full_config() {
-        let config: Configuration = toml::from_str("
+        let config: ConfDeserializer = toml::from_str("
             certificate = \"certs/foobar.crt\"
             certificate_key = \"certs/foobar.key\"
             domain_names = [\"foobar.com\"]

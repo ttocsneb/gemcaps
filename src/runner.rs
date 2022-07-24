@@ -5,7 +5,7 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::capsule::{redirect, GeminiResponse, file};
-use crate::config::ConfItem;
+use crate::config::{ConfItem, ConfItemTrait};
 use crate::gemini::Request;
 use crate::log::Logger;
 use crate::pem::Cert;
