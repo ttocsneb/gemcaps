@@ -8,16 +8,20 @@ use crate::glob::Glob;
 use super::{ConfItemTrait, RegexDe};
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct CGIConf {
+pub struct CgiConf {
     #[serde(default)]
     pub domain_names: Vec<Glob>,
     pub cgi_root: PathBuf,
     pub error_log: Option<PathBuf>,
     pub access_log: Option<PathBuf>,
     pub rule: Option<RegexDe>,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    #[serde(default)]
+    pub indexes: Vec<Glob>,
 }
 
-impl ConfItemTrait for CGIConf {
+impl ConfItemTrait for CgiConf {
     #[inline]
     fn domain_names(&self) -> &Vec<Glob> {
         &self.domain_names

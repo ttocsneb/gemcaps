@@ -36,23 +36,21 @@ certificate = "certs/foobar.crt"
 certificate_key = "certs/foobar.key"
 error_log = "logs/foobar.error.log"
 access_log = "logs/foobar.access.log"
-pid_file = "logs/foobar.pid"
-worker_processes = 5
 domain_names = ["foobar.com"]
 
 [application]
-rule = "^/app/"
 proxy = "gemini://localhost:1971"
-substitution = "s|^/app/||g" # sed inspired substitution
+rule = "^/app/"
 
 [application]
-rule = "\.py$"
 cgi_root = "/var/www/gemini"
-substitution = "s|^|/foobar|g"
+extensions = ["py"]
+indexes = ["index.*"]
 
 [application]
 file_root = "/var/www/gemini"
-substitution = "s|^|/foobar|g"
+indexes = ["index.*"]
+send_folders = true
 
 ```
 

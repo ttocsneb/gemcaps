@@ -180,6 +180,20 @@ pub fn encode(path: &str) -> Cow<str> {
     }
 }
 
+/// Encode a path with percent encoding using [urlencoding]
+/// 
+/// urlencoding by default will encode '/' as '%2F' which should not be the
+/// case when dealing with paths. This function will keep '/' as is while
+/// encoding all other characters.
+/// 
+pub fn encode_binary(path: &[u8]) -> String {
+    let parts: Vec<_> = path.split(|c| *c == b'/').map(
+        |group| urlencoding::encode_binary(group)
+    ).collect();
+
+    parts.join("/").into()
+}
+
 /// Expand any '.' or '..' in a path
 /// 
 /// If the path is relative, then excess '..' will bleed over e.g.

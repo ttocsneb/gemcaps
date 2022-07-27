@@ -1,10 +1,11 @@
 use std::{path::Path, vec, mem};
+use capsule::capsule_main;
 use config::{ConfItem, ConfItemTrait};
+use error::GemcapsResult;
 use futures::future;
 
 use clap::Parser;
 use log::Logger;
-use runner::capsule_main;
 use tokio::{fs, io::AsyncReadExt};
 use lazy_static::lazy_static;
 
@@ -14,7 +15,6 @@ mod capsule;
 mod pathutil;
 mod config;
 mod error;
-mod runner;
 mod tls;
 mod glob;
 mod pem;
@@ -40,7 +40,7 @@ pub fn args() -> &'static Args {
     &ARGS
 }
 
-async fn runner() -> Result<(), GemcapsError> {
+async fn runner() -> GemcapsResult<()> {
     let args = args();
 
     let config = Path::new(&args.config);
@@ -154,46 +154,4 @@ async fn main() {
             logger.error(err.to_string()).await;
         }
     }
-    // let sett = match settings::load_settings(&config_dir).await {
-    //     Ok(val) => val,
-    //     Err(e) => {
-    //         eprintln!("Could not load settings: {}", e.to_string());
-    //         return;
-    //     }
-    // };
-
-    // let mut sni_certs: Vec<SniCert> = Vec::new();
-
-    // for (server, cert) in &sett.certificates {
-    //     let cert = match server::SniCert::load(
-    //         server, 
-    //         pathutil::abspath(&config_dir, &cert.cert),
-    //         pathutil::abspath(&config_dir,&cert.key)
-    //     ) {
-    //         Ok(cert) => cert,
-    //         Err(err) => {
-    //             eprintln!("Could not read certificate '{}': {}", server, err.to_string());
-    //             return;
-    //         }
-    //     };
-    //     sni_certs.push(cert);
-    // }
-    
-    // let loaders: [Arc<dyn capsule::Loader>; 1] = [
-    //     Arc::new(capsule::files::FileConfigLoader)
-    // ];
-    // let capsules = match capsule::load_capsules(
-    //     pathutil::abspath(&config_dir, &sett.capsules),
-    //     &loaders
-    // ).await {
-    //     Ok(capsules) => capsules,
-    //     Err(err) => {
-    //         eprintln!("Error while loading capsules: {}", err.to_string());
-    //         return;
-    //     }
-    // };
-
-    // if let Err(err) = server::serve(&sett.listen, &sett, sni_certs, capsules).await {
-    //     eprintln!("Error: {}", err.to_string());
-    // }
 }

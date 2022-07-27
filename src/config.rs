@@ -11,7 +11,7 @@ pub mod file;
 
 use crate::{error::GemcapsError, pem::Cert, glob::Glob};
 
-use self::cgi::CGIConf;
+use self::cgi::CgiConf;
 use self::proxy::ProxyConf;
 use self::redirect::RedirectConf;
 use self::file::FileConf;
@@ -39,7 +39,7 @@ pub trait ConfItemTrait {
 pub enum ConfItem {
     Redirect(RedirectConf),
     Proxy(ProxyConf),
-    CGI(CGIConf),
+    CGI(CgiConf),
     File(FileConf),
 }
 

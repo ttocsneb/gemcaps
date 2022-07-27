@@ -1,5 +1,6 @@
-use std::{error::Error, fmt::Display, io, string::FromUtf8Error};
+use std::{error::Error, fmt::Display, io, string::FromUtf8Error, num::ParseIntError};
 
+pub type GemcapsResult<T> = Result<T, GemcapsError>;
 
 #[derive(Debug)]
 pub enum GemcapsError {
@@ -53,6 +54,12 @@ impl From<FromUtf8Error> for GemcapsError {
 
 impl From<rustls::Error> for GemcapsError {
     fn from(err: rustls::Error) -> Self {
+        Self::Embedded(Box::new(err))
+    }
+}
+
+impl From<ParseIntError> for GemcapsError {
+    fn from(err: ParseIntError) -> Self {
         Self::Embedded(Box::new(err))
     }
 }

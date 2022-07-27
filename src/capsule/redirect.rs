@@ -1,10 +1,12 @@
 
 use tokio::{net::{TcpStream, tcp::{ReadHalf, WriteHalf}}, io::{AsyncWriteExt, AsyncReadExt}, join};
 
-use crate::{log::Logger, error::GemcapsError, config::{CapsuleConf, ConfItem, redirect::RedirectConf}};
+use crate::log::Logger;
+use crate::config::{CapsuleConf, ConfItem, redirect::RedirectConf};
+use crate::error::{GemcapsError, GemcapsResult};
 
 
-pub async fn redirect(conf: &CapsuleConf, sni: &str, client_hello: &[u8], stream: &mut TcpStream, logger: &Logger) -> Result<bool, GemcapsError> {
+pub async fn redirect(conf: &CapsuleConf, sni: &str, client_hello: &[u8], stream: &mut TcpStream, logger: &Logger) -> GemcapsResult<bool> {
     fn get_application<'t>(conf: &'t CapsuleConf, sni: &str) -> Option<&'t RedirectConf> {
         for conf in &conf.items {
             if let ConfItem::Redirect(conf) = conf {

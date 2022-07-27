@@ -2,11 +2,11 @@ use std::{path::Path, io, ffi::OsStr, os::unix::prelude::OsStrExt};
 
 use tokio::fs;
 
-use crate::{gemini::Request, log::Logger, error::GemcapsError, pathutil, config::file::FileConf};
+use crate::gemini::Response;
+use crate::{gemini::Request, log::Logger, pathutil, config::file::FileConf};
+use crate::error::{GemcapsError, GemcapsResult};
 
-use super::GeminiResponse;
-
-async fn clean_path(root: impl AsRef<Path>, path: impl AsRef<OsStr>, request_path: impl AsRef<str>) -> Result<Option<GeminiResponse>, GemcapsError> {
+async fn clean_path(root: impl AsRef<Path>, path: impl AsRef<OsStr>, request_path: impl AsRef<str>) -> GemcapsResult<Option<Response>> {
     let root = root.as_ref();
     let mut path = path.as_ref();
     let request_path = request_path.as_ref();
@@ -21,7 +21,7 @@ async fn clean_path(root: impl AsRef<Path>, path: impl AsRef<OsStr>, request_pat
                     redirect_path += "/";
                 }
                 if redirect_path != request_path {
-                    return Ok(Some(GeminiResponse::redirect_perm(pathutil::encode(&redirect_path))));
+                    return Ok(Some(Response::redirect_perm(pathutil::encode(&redirect_path))));
                 }
                 return Ok(None);
             },
@@ -38,7 +38,7 @@ async fn clean_path(root: impl AsRef<Path>, path: impl AsRef<OsStr>, request_pat
     }
 }
 
-pub async fn process_file_request(request: &Request, conf: &FileConf, logger: &mut Logger) -> Result<Option<GeminiResponse>, GemcapsError> {
+pub async fn process_file_request(request: &Request, conf: &FileConf, logger: &mut Logger) -> GemcapsResult<Option<Response>> {
     let original_path = urlencoding::decode_binary(request.path().as_bytes());
 
 
@@ -55,7 +55,7 @@ pub async fn process_file_request(request: &Request, conf: &FileConf, logger: &m
         Ok(val) => val,
         Err(err) => {
             logger.error(format!("Invalid path: {}", err)).await;
-            return Ok(Some(GeminiResponse::failure_perm("Permission denied")));
+            return Ok(Some(Response::failure_perm("Permission denied")));
         }
     });
 
@@ -81,7 +81,7 @@ pub async fn process_file_request(request: &Request, conf: &FileConf, logger: &m
 
     if metadata.is_file() {
         let mime_type = pathutil::get_mimetype(&file);
-        return Ok(Some(GeminiResponse::success(mime_type, fs::read_to_string(file).await?)));
+        return Ok(Some(Response::success(mime_type, fs::read_to_string(file).await?)));
     }
     
     if metadata.is_dir() {
@@ -99,7 +99,7 @@ pub async fn process_file_request(request: &Request, conf: &FileConf, logger: &m
                 if index.matches(&name) {
                     let file = ent.path();
                     let mime_type = pathutil::get_mimetype(&file);
-                    return Ok(Some(GeminiResponse::success(mime_type, fs::read_to_string(file).await?)));
+                    return Ok(Some(Response::success(mime_type, fs::read_to_string(file).await?)));
                 }
             }
             files.push(name);
@@ -125,9 +125,9 @@ pub async fn process_file_request(request: &Request, conf: &FileConf, logger: &m
             response += &format!("=> {} 📃 {}\n", url, name);
         }
 
-        return Ok(Some(GeminiResponse::success("text/gemini", response)));
+        return Ok(Some(Response::success("text/gemini", response)));
     }
 
     logger.error(format!("{:?} is neither a file or a folder", file)).await;
-    return Ok(Some(GeminiResponse::failure_perm("Permission denied")));
+    return Ok(Some(Response::failure_perm("Permission denied")));
 }
